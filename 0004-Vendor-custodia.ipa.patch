@@ -1,26 +1,30 @@
-From a38601968ccd8c8dfdce60c8d66b220eefb344b0 Mon Sep 17 00:00:00 2001
+From 30a308b8af374e72d4d37bf025285d73cf027cdf Mon Sep 17 00:00:00 2001
 From: Christian Heimes <cheimes@redhat.com>
 Date: Tue, 28 Mar 2017 18:41:08 +0200
 Subject: [PATCH 4/4] Vendor custodia.ipa
 
 ---
- README.custodia.ipa      | 137 ++++++++++++++++++++++
- custodia/ipa/__init__.py |   1 +
- custodia/ipa/vault.py    | 291 +++++++++++++++++++++++++++++++++++++++++++++++
- setup.py                 |   8 +-
- tests/test_ipa.py        | 195 +++++++++++++++++++++++++++++++
- 6 files changed, 638 insertions(+), 2 deletions(-)
+ README.custodia.ipa             | 237 ++++++++++++++++++++++
+ setup.py                        |  10 +-
+ src/custodia/ipa/__init__.py    |   1 +
+ src/custodia/ipa/certrequest.py | 349 ++++++++++++++++++++++++++++++++
+ src/custodia/ipa/interface.py   | 165 ++++++++++++++++
+ src/custodia/ipa/vault.py       | 245 +++++++++++++++++++++++
+ tests/test_ipa.py               | 428 ++++++++++++++++++++++++++++++++++++++++
+ 8 files changed, 1441 insertions(+), 2 deletions(-)
  create mode 100644 README.custodia.ipa
- create mode 100644 custodia/ipa/__init__.py
- create mode 100644 custodia/ipa/vault.py
+ create mode 100644 src/custodia/ipa/__init__.py
+ create mode 100644 src/custodia/ipa/certrequest.py
+ create mode 100644 src/custodia/ipa/interface.py
+ create mode 100644 src/custodia/ipa/vault.py
  create mode 100644 tests/test_ipa.py
 
 diff --git a/README.custodia.ipa b/README.custodia.ipa
 new file mode 100644
-index 0000000..a952ef8
+index 0000000..11df336
 --- /dev/null
 +++ b/README.custodia.ipa
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,237 @@
 +.. WARNING: AUTO-GENERATED FILE. DO NOT EDIT.
 +
 +custodia.ipa — IPA vault plugin for Custodia
@@ -28,12 +32,15 @@ index 0000000..a952ef8
 +
 +**WARNING** *custodia.ipa is a tech preview with a provisional API.*
 +
-+custodia.ipa is a storage plugin for
++custodia.ipa is a collection of plugins for
 +`Custodia <https://custodia.readthedocs.io/>`__. It provides integration
-+with `FreeIPA <http://www.freeipa.org>`__'s
-+`vault <https://www.freeipa.org/page/V4/Password_Vault>`__ facility.
-+Secrets are encrypted and stored in
-+`Dogtag <http://www.dogtagpki.org>`__'s Key Recovery Agent.
++with `FreeIPA <http://www.freeipa.org>`__. The *IPAVault* plugin is an
++interface to `FreeIPA
++vault <https://www.freeipa.org/page/V4/Password_Vault>`__. Secrets are
++encrypted and stored in `Dogtag <http://www.dogtagpki.org>`__'s Key
++Recovery Agent. The *IPACertRequest* plugin creates private key and
++signed certificates on-demand. Finally the *IPAInterface* plugin is a
++helper plugin that wraps ipalib and GSSAPI authentication.
 +
 +Requirements
 +------------
@@ -47,14 +54,15 @@ index 0000000..a952ef8
 +Runtime
 +~~~~~~~
 +
-+-  custodia >= 0.3.1
++-  custodia >= 0.5.0
 +-  ipalib >= 4.5.0
 +-  ipaclient >= 4.5.0
 +-  Python 2.7 (Python 3 support in IPA vault is unstable.)
 +
 +custodia.ipa requires an IPA-enrolled host and a Kerberos TGT for
 +authentication. It is recommended to provide credentials with a keytab
-+file or GSS-Proxy.
++file or GSS-Proxy. Furthermore *IPAVault* depends on Key Recovery Agent
++service (``ipa-kra-install``).
 +
 +Testing and development
 +~~~~~~~~~~~~~~~~~~~~~~~
@@ -112,30 +120,53 @@ index 0000000..a952ef8
 +::
 +
 +    $ kinit admin
-+    $ ipa service-add custodia/client1.ipa.example
-+    $ ipa service-allow-create-keytab custodia/client1.ipa.example --users=admin
++    $ ipa service-add custodia/$HOSTNAME
++    $ ipa service-allow-create-keytab custodia/$HOSTNAME --users=admin
 +    $ mkdir -p /etc/custodia
-+    $ ipa-getkeytab -p custodia/client1.ipa.example -k /etc/custodia/custodia.keytab
++    $ ipa-getkeytab -p custodia/$HOSTNAME -k /etc/custodia/ipa.keytab
++    $ chown custodia:custodia /etc/custodia/ipa.keytab
 +
-+Create ``/etc/custodia/custodia.conf``
++The IPA cert request plugin needs additional permissions
 +
 +::
 +
-+    [DEFAULT]
-+    confdir = /etc/custodia
-+    libdir = /var/lib/custodia
-+    logdir = /var/log/custodia
-+    rundir = /var/run/custodia
++    $ ipa privilege-add \
++        --desc="Create and request service certs with Custodia" \
++        "Custodia Service Certs"
++    $ ipa privilege-add-permission \
++        --permissions="Retrieve Certificates from the CA" \
++        --permissions="Request Certificate" \
++        --permissions="Revoke Certificate" \
++        --permissions="System: Modify Services" \
++        "Custodia Service Certs"
++    # for add_principal=True
++    $ ipa privilege-add-permission \
++        --permissions="System: Add Services" \
++        "Custodia Service Certs"
++    $ ipa role-add \
++        --desc="Create and request service certs with Custodia" \
++        "Custodia Service Cert Adminstrator"
++    $ ipa role-add-privilege \
++        --privileges="Custodia Service Certs" \
++        "Custodia Service Cert Adminstrator"
++    $ ipa role-add-member \
++        --services="custodia/$HOSTNAME" \
++        "Custodia Service Cert Adminstrator"
++
++Create ``/etc/custodia/ipa.conf``
++
++::
++
++    # /etc/custodia/ipa.conf
 +
 +    [global]
 +    debug = true
-+    server_socket = ${rundir}/custodia.sock
-+    auditlog = ${logdir}/audit.log
++    makedirs = true
 +
-+    [store:vault]
-+    handler = IPAVault
-+    keytab = {confdir}/custodia.keytab
-+    ccache = FILE:{rundir}/ccache
++    [auth:ipa]
++    handler = IPAInterface
++    keytab = ${configdir}/${instance}.keytab
++    ccache = FILE:${rundir}/ccache
 +
 +    [auth:creds]
 +    handler = SimpleCredsAuth
@@ -146,6 +177,13 @@ index 0000000..a952ef8
 +    handler = SimplePathAuthz
 +    paths = /. /secrets
 +
++    [store:vault]
++    handler = IPAVault
++
++    [store:cert]
++    handler = IPACertRequest
++    backing_store = vault
++
 +    [/]
 +    handler = Root
 +
@@ -153,36 +191,676 @@ index 0000000..a952ef8
 +    handler = Secrets
 +    store = vault
 +
++    [/secrets/certs]
++    handler = Secrets
++    store = cert
++
 +Run Custodia server
 +
 +::
 +
-+    $ custodia /etc/custodia/custodia.conf
-diff --git a/custodia/ipa/__init__.py b/custodia/ipa/__init__.py
++    $ systemctl start custodia@ipa.socket
++
++IPA cert request
++----------------
++
++The *IPACertRequest* store plugin generates or revokes certificates on
++the fly. It uses a backing store to cache certs and private keys. The
++plugin can create service principal automatically. However the host must
++already exist. The *IPACertRequest* does not create host entries on
++demand.
++
++A request like ``GET /path/to/store/HTTP/client1.ipa.example`` generates
++a private key and CSR for the service ``HTTP/client1.ipa.example`` with
++DNS subject alternative name ``client1.ipa.example``. The CSR is then
++forwarded to IPA and signed by Dogtag. The resulting cert and its trust
++chain is returned together with the private key as a PEM bundle.
++
++::
++
++    $ export CUSTODIA_INSTANCE=ipa
++    $ custodia-cli get /certs/HTTP/client1.ipa.example
++    -----BEGIN RSA PRIVATE KEY-----
++    ...
++    -----END RSA PRIVATE KEY-----
++
++    Issuer: organizationName=IPA.EXAMPLE, commonName=Certificate Authority
++    Subject: organizationName=IPA.EXAMPLE, commonName=client1.ipa.example
++    Serial Number: 22
++    Validity:
++        Not Before: 2017-04-27 09:44:20
++        Not After: 2019-04-28 09:44:20
++    -----BEGIN CERTIFICATE-----
++    ...
++    -----END CERTIFICATE-----
++
++    Issuer: organizationName=IPA.EXAMPLE, commonName=Certificate Authority
++    Issuer: organizationName=IPA.EXAMPLE, commonName=Certificate Authority
++    Serial Number: 1
++    Validity:
++        Not Before: 2017-04-26 08:24:11
++        Not After: 2037-04-26 08:24:11
++    -----BEGIN CERTIFICATE-----
++    ...
++    -----END CERTIFICATE-----
++
++A DELETE request removes the cert/key pair from the backing store and
++revokes the cert at the same time.
++
++Automatical renewal of revoked or expired certificates is not
++implemented yet.
++
++FreeIPA 4.4 support
++~~~~~~~~~~~~~~~~~~~
++
++The default settings and permissions are tuned for FreeIPA >= 4.5. For
++4.4, the plugin must be configured with ``chain=False``. The additional
++permission ``Request Certificate with SubjectAltName`` is required, too.
++
++::
++
++    ipa privilege-add-permission \
++        --permissions="Request Certificate with SubjectAltName" \
++        "Custodia Service Certs"
+diff --git a/setup.py b/setup.py
+index 8694ce2..4d5cbe7 100755
+--- a/setup.py
++++ b/setup.py
+@@ -36,10 +36,14 @@ requirements = [
+     'requests'
+ ]
+ 
++# extra requirements
++ipa_requires = ['ipalib >= 4.5.0', 'ipaclient >= 4.5.0']
++
+ # test requirements
+-test_requires = ['coverage', 'pytest']
++test_requires = ['coverage', 'pytest', 'mock'] + ipa_requires
+ 
+ extras_require = {
++    'ipa': ipa_requires,
+     'test': test_requires,
+     'test_docs': ['docutils', 'markdown', 'sphinx-argparse',
+                   'sphinxcontrib-spelling'],
+@@ -66,6 +70,7 @@ custodia_authenticators = [
+     'SimpleAuthKeys = custodia.httpd.authenticators:SimpleAuthKeys',
+     ('SimpleClientCertAuth = '
+      'custodia.httpd.authenticators:SimpleClientCertAuth'),
++    'IPAInterface = custodia.ipa.interface:IPAInterface',
+ ]
+ 
+ custodia_authorizers = [
+@@ -88,6 +93,8 @@ custodia_consumers = [
+ custodia_stores = [
+     'EncryptedOverlay = custodia.store.encgen:EncryptedOverlay',
+     'EncryptedStore = custodia.store.enclite:EncryptedStore',
++    'IPAVault = custodia.ipa.vault:IPAVault',
++    'IPACertRequest = custodia.ipa.certrequest:IPACertRequest',
+     'SqliteStore = custodia.store.sqlite:SqliteStore',
+ ]
+ 
+@@ -109,6 +116,7 @@ setup(
+         'custodia',
+         'custodia.cli',
+         'custodia.httpd',
++        'custodia.ipa',
+         'custodia.message',
+         'custodia.server',
+         'custodia.store',
+diff --git a/src/custodia/ipa/__init__.py b/src/custodia/ipa/__init__.py
 new file mode 100644
 index 0000000..ef1bb9d
 --- /dev/null
-+++ b/custodia/ipa/__init__.py
++++ b/src/custodia/ipa/__init__.py
 @@ -0,0 +1 @@
 +# Copyright (C) 2016  Custodia Project Contributors - see LICENSE file
-diff --git a/custodia/ipa/vault.py b/custodia/ipa/vault.py
+diff --git a/src/custodia/ipa/certrequest.py b/src/custodia/ipa/certrequest.py
 new file mode 100644
-index 0000000..f681c54
+index 0000000..493a0ff
 --- /dev/null
-+++ b/custodia/ipa/vault.py
-@@ -0,0 +1,291 @@
-+# Copyright (C) 2016  Custodia Project Contributors - see LICENSE file
-+"""FreeIPA vault store (PoC)
++++ b/src/custodia/ipa/certrequest.py
+@@ -0,0 +1,349 @@
++# Copyright (C) 2017  Custodia Project Contributors - see LICENSE file
++"""FreeIPA cert request store
 +"""
++from __future__ import absolute_import
++
++import abc
++import base64
++import datetime
++import textwrap
++
++from cryptography import x509
++from cryptography.hazmat.backends import default_backend
++from cryptography.hazmat.primitives import hashes
++from cryptography.hazmat.primitives import serialization
++from cryptography.hazmat.primitives.asymmetric import rsa
++from cryptography.x509 import oid
++
++from ipalib.errors import AuthorizationError, NotFound
++from ipalib.krb_utils import krb5_format_service_principal_name
++
++
++import six
++
++from custodia.plugin import CSStore, PluginOption, REQUIRED
++from custodia.plugin import CSStoreDenied, CSStoreError
++
++from .interface import IPAInterface
++
++
++TLS_SERVERAUTH = oid.ObjectIdentifier('2.5.29.37.1')
++
++
++@six.add_metaclass(abc.ABCMeta)
++class _CSRGenerator(object):
++    """Build and sign certificate signing request
++    """
++    TEMPLATE = textwrap.dedent("""\
++        Issuer: {issuer}
++        Subject: {subject}
++        Serial Number: {cert.serial_number}
++        Validity:
++            Not Before: {cert.not_valid_before}
++            Not After: {cert.not_valid_after}
++        {pem}\
++    """)
++
++    def __init__(self, plugin, backend=None):
++        if backend is None:
++            self.backend = default_backend()
++        else:
++            self.backend = backend
++        self.plugin = plugin
++        self._privkey = self._gen_private()
++
++    def _gen_private(self):
++        """Generate private key
++        """
++        return rsa.generate_private_key(
++            public_exponent=65537,
++            key_size=self.plugin.key_size,
++            backend=self.backend
++        )
++
++    @abc.abstractmethod
++    def build_csr(self, **kwargs):
++        """Generate a certificate signing request builder
++        """
++
++    def _sign_csr(self, builder):
++        return builder.sign(self._privkey, hashes.SHA256(), self.backend)
++
++    @abc.abstractmethod
++    def _cert_request(self, csr_pem, **kwargs):
++        """Request certificate from IPA
++        """
++
++    def request_cert(self, builder, **kwargs):
++        """Send CSR and request certificate
++        """
++        signed = self._sign_csr(builder)
++        csr_pem = signed.public_bytes(serialization.Encoding.PEM)
++        if not isinstance(csr_pem, six.text_type):
++            csr_pem = csr_pem.decode('ascii')
++
++        response = self._cert_request(csr_pem, **kwargs)
++
++        if self.plugin.chain:
++            certs = tuple(
++                x509.load_der_x509_certificate(cert, self.backend)
++                for cert in response[u'result'][u'certificate_chain']
++            )
++        else:
++            # certificate is just base64 without BEGIN/END certificate
++            cert = base64.b64decode(response[u'result'][u'certificate'])
++            certs = (x509.load_der_x509_certificate(cert, self.backend), )
++
++        pem = [self._dump_privkey(self._privkey)]
++        pem.extend(self._dump_cert(cert) for cert in certs)
++        return response, '\n'.join(pem)
++
++    def _dump_cert(self, cert):
++        pem = cert.public_bytes(encoding=serialization.Encoding.PEM)
++        if six.PY3:
++            pem = pem.decode('ascii')
++        return self.TEMPLATE.format(
++            issuer=self._dump_x509name(cert.issuer),
++            subject=self._dump_x509name(cert.subject),
++            cert=cert,
++            pem=pem
++        )
++
++    def _dump_x509name(self, name):
++        # no quoting, just for debugging
++        out = []
++        # pylint: disable=protected-access
++        for nameattr in list(name):
++            out.append("{}={}".format(nameattr.oid._name, nameattr.value))
++        # pylint: enable=protected-access
++        return ', '.join(out)
++
++    def _dump_privkey(self, privkey):
++        privkey = privkey.private_bytes(
++            encoding=serialization.Encoding.PEM,
++            format=serialization.PrivateFormat.TraditionalOpenSSL,
++            encryption_algorithm=serialization.NoEncryption()
++        )
++        if six.PY3:
++            privkey = privkey.decode('ascii')
++        return privkey
++
++
++class _ServerCSRGenerator(_CSRGenerator):
++    # pylint: disable=arguments-differ
++    def build_csr(self, hostname, **kwargs):
++        realm = self.plugin.ipa.env.realm
++        builder = x509.CertificateSigningRequestBuilder()
++        builder = builder.subject_name(
++            x509.Name([
++                x509.NameAttribute(oid.NameOID.COMMON_NAME, hostname),
++                x509.NameAttribute(oid.NameOID.ORGANIZATION_NAME, realm),
++            ])
++        )
++        build = builder.add_extension(
++            x509.BasicConstraints(ca=False, path_length=None), critical=True,
++        )
++        build = builder.add_extension(
++            x509.ExtendedKeyUsage([TLS_SERVERAUTH]), critical=True
++        )
++        builder = build.add_extension(
++            x509.SubjectAlternativeName([x509.DNSName(hostname)]),
++            critical=False
++        )
++        return builder
++
++    # pylint: disable=arguments-differ
++    def _cert_request(self, pem_req, principal, **kwargs):
++        # FreeIPA 4.4 has no chain option, only pass kwarg when enabled
++        if self.plugin.chain:
++            kwargs['chain'] = True
++        with self.plugin.ipa as ipa:
++            return ipa.Command.cert_request(
++                pem_req,
++                profile_id=self.plugin.cert_profile,
++                add=self.plugin.add_principal,
++                principal=principal,
++                **kwargs
++            )
++
++
++class IPACertRequest(CSStore):
++    """IPA cert request store
++
++    The IPACertRequest store plugin generates or revokes certificates on the
++    fly. It uses a backing store to cache certs and private keys.
++
++    The request ```GET /secrets/certs/HTTP/client1.ipa.example``` generates a
++    private key and CSR for the service ```HTTP/client1.ipa.example``` with
++    DNS subject alternative name ```client1.ipa.example```.
++
++    A DELETE request removes the cert/key pair from the backing store and
++    revokes the cert at the same time.
++    """
++    backing_store = PluginOption(str, REQUIRED, None)
++
++    key_size = PluginOption(int, 2048, 'RSA key size')
++    cert_profile = PluginOption(str, 'caIPAserviceCert', 'IPA cert profile')
++    add_principal = PluginOption(bool, True, 'Add missing principal')
++    chain = PluginOption(bool, True, 'Return full cert chain')
++    allowed_services = PluginOption('str_set', {'HTTP'}, 'Service prefixes')
++    revocation_reason = PluginOption(
++        int, 4, 'Cert revocation reason (4: superseded)')
++
++    def __init__(self, config, section=None):
++        super(IPACertRequest, self).__init__(config, section)
++        self.store_name = self.backing_store
++        self.store = None
++        self.ipa = None
++        if not isinstance(self.cert_profile, six.text_type):
++            self.cert_profile = self.cert_profile.decode('utf-8')
++
++    def finalize_init(self, config, cfgparser, context=None):
++        super(IPACertRequest, self).finalize_init(config, cfgparser, context)
++        if self.ipa is not None:
++            return
++        self.ipa = IPAInterface.from_config(config)
++        self.ipa.finalize_init(config, cfgparser, context=self)
++
++    def _parse_key(self, key):
++        if not isinstance(key, six.text_type):
++            key = key.decode('utf-8')
++        parts = key.split(u'/')
++        # XXX why is 'keys' added in in Secrets._db_key()?
++        if len(parts) != 3 or parts[0] != 'keys':
++            raise CSStoreDenied("Invalid cert request key '{}'".format(key))
++        service, hostname = parts[1:3]
++        # pylint: disable=unsupported-membership-test
++        if service not in self.allowed_services:
++            raise CSStoreDenied("Invalid service '{}'".format(key))
++        principal = krb5_format_service_principal_name(
++            service, hostname, self.ipa.env.realm
++        )
++        # use cert prefix in storage key
++        key = u"cert/{}/{}".format(service, hostname)
++        return key, hostname, principal
++
++    def get(self, key):
++        # check key first
++        key, hostname, principal = self._parse_key(key)
++        value = self.store.get(key)
++        if value is not None:
++            # TODO: validate certificate
++            self.logger.info("Found cached certificate for %s", principal)
++            return value
++        # found no cached key/cert pair, generate one
++        try:
++            data = self._request_cert(hostname, principal)
++        except AuthorizationError:
++            msg = "Unauthorized request for '{}' ({})".format(
++                hostname, principal
++            )
++            self.logger.exception(msg)
++            raise CSStoreDenied(msg)
++        except NotFound:
++            msg = "Host '{}' or principal '{}' not found".format(
++                hostname, principal
++            )
++            self.logger.exception(msg)
++            raise CSStoreDenied(msg)
++        except Exception:
++            msg = "Failed to request cert '{}' ({})".format(
++                hostname, principal
++            )
++            self.logger.exception(msg)
++            raise CSStoreError(msg)
++        self.store.set(key, data, replace=True)
++        return data
++
++    def set(self, key, value, replace=False):
++        key, hostname, principal = self._parse_key(key)
++        del hostname, principal
++        return self.store.set(key, value, replace)
++
++    def span(self, key):
++        key, hostname, principal = self._parse_key(key)
++        del hostname, principal
++        return self.store.span(key)
++
++    def list(self, keyfilter=''):
++        return self.store.list(keyfilter)
++
++    def cut(self, key):
++        key, hostname, principal = self._parse_key(key)
++        certs = self._revoke_certs(hostname, principal)
++        return self.store.cut(key) or certs
++
++    def _request_cert(self, hostname, principal):
++        self.logger.info("Requesting certificate for %s", hostname)
++        csrgen = _ServerCSRGenerator(plugin=self)
++        builder = csrgen.build_csr(hostname=hostname)
++        response, pem = csrgen.request_cert(builder, principal=principal)
++        self.logger.info(
++            "Got certificate for '%s', request id %s, serial number %s",
++            response[u'result'][u'subject'],
++            response[u'result'][u'request_id'],
++            response[u'result'][u'serial_number'],
++        )
++        return pem
++
++    def _revoke_certs(self, hostname, principal):
++        with self.ipa as ipa:
++            response = ipa.Command.cert_find(
++                service=principal,
++                validnotafter_from=datetime.datetime.utcnow(),
++            )
++            # XXX cert_find has no filter for valid cert
++            certs = list(
++                cert for cert in response['result']
++                if not cert[u'revoked']
++            )
++            for cert in certs:
++                self.logger.info(
++                    'Revoking cert %i (subject: %s, issuer: %s)',
++                    cert[u'serial_number'], cert[u'subject'],
++                    cert[u'issuer']
++                )
++                ipa.Command.cert_revoke(
++                    cert[u'serial_number'],
++                    revocation_reason=self.revocation_reason,
++                )
++            return certs
++
++
++def test():
++    from custodia.compat import configparser
++    from custodia.log import setup_logging
++    from .interface import IPA_SECTIONNAME
++    from .vault import IPAVault
++
++    parser = configparser.ConfigParser(
++        interpolation=configparser.ExtendedInterpolation()
++    )
++    parser.read_string(u"""
++    [auth:ipa]
++    handler = IPAInterface
++    [store:ipa_vault]
++    handler = IPAVault
++    [store:ipa_certreq]
++    handler = IPAVault
++    backing_store = ipa_vault
++    """)
++
++    setup_logging(debug=True, auditfile=None)
++    config = {
++        'authenticators': {
++            'ipa': IPAInterface(parser, IPA_SECTIONNAME)
++        }
++    }
++    vault = IPAVault(parser, 'store:ipa_vault')
++    vault.finalize_init(config, parser, None)
++    s = IPACertRequest(parser, 'store:ipa_certreq')
++    s.store = vault
++    s.finalize_init(config, parser, None)
++    print(s.get('keys/HTTP/client1.ipa.example'))
++    print(s.get('keys/HTTP/client1.ipa.example'))
++    print(s.cut('keys/HTTP/client1.ipa.example'))
++
++
++if __name__ == '__main__':
++    test()
+diff --git a/src/custodia/ipa/interface.py b/src/custodia/ipa/interface.py
+new file mode 100644
+index 0000000..c73ef24
+--- /dev/null
++++ b/src/custodia/ipa/interface.py
+@@ -0,0 +1,165 @@
++# Copyright (C) 2017  Custodia Project Contributors - see LICENSE file
++"""IPA API wrapper and interface
++"""
++from __future__ import absolute_import
++
 +import os
++import sys
 +
 +import ipalib
-+from ipalib.errors import DuplicateEntry, NotFound
++import ipalib.constants
 +from ipalib.krb_utils import get_principal
 +
 +import six
 +
-+from custodia.plugin import CSStore, CSStoreError, CSStoreExists, PluginOption
++from custodia.plugin import HTTPAuthenticator, PluginOption
++
++
++IPA_SECTIONNAME = 'auth:ipa'
++
++
++class IPAInterface(HTTPAuthenticator):
++    """IPA interface authenticator
++
++    Custodia uses a forking server model. We can bootstrap FreeIPA API in
++    the main process. Connections must be created in the client process.
++    """
++    # Kerberos flags
++    krb5config = PluginOption(str, None, "Kerberos krb5.conf override")
++    keytab = PluginOption(str, None, "Kerberos keytab for auth")
++    ccache = PluginOption(
++        str, None, "Kerberos ccache, e,g. FILE:/path/to/ccache")
++
++    # ipalib.api arguments
++    ipa_confdir = PluginOption(str, None, "IPA confdir override")
++    ipa_context = PluginOption(str, "cli", "IPA bootstrap context")
++    ipa_debug = PluginOption(bool, False, "debug mode for ipalib")
++
++    # filled by gssapi()
++    principal = False
++
++    def __init__(self, config, section=None, api=None):
++        super(IPAInterface, self).__init__(config, section)
++        # only one instance of this plugin is supported
++        if section != IPA_SECTIONNAME:
++            raise ValueError(section)
++
++        if api is None:
++            self._api = ipalib.api
++        else:
++            self._api = api
++
++        if self._api.isdone('bootstrap'):
++            raise RuntimeError("IPA API already initialized")
++
++        self._ipa_config = dict(
++            context=self.ipa_context,
++            debug=self.ipa_debug,
++            log=None,  # disable logging to file
++        )
++        if self.ipa_confdir is not None:
++            self._ipa_config['confdir'] = self.ipa_confdir
++
++    @classmethod
++    def from_config(cls, config):
++        return config['authenticators']['ipa']
++
++    def finalize_init(self, config, cfgparser, context=None):
++        super(IPAInterface, self).finalize_init(config, cfgparser, context)
++
++        if self.principal:
++            # already initialized
++            return
++
++        # get rundir from own section or DEFAULT
++        rundir = cfgparser.get(self.section, 'rundir', fallback=None)
++        if rundir:
++            self._ipa_config['dot_ipa'] = rundir
++            self._ipa_config['home'] = rundir
++            # workaround https://pagure.io/freeipa/issue/6761#comment-440329
++            # monkey-patch ipalib.constants and all loaded ipa modules
++            ipalib.constants.USER_CACHE_PATH = rundir
++            for name, mod in six.iteritems(sys.modules):
++                if (name.startswith(('ipalib.', 'ipaclient.')) and
++                        hasattr(mod, 'USER_CACHE_PATH')):
++                    mod.USER_CACHE_PATH = rundir
++
++        self._gssapi_config()
++        self._bootstrap()
++        with self:
++            self.logger.info("IPA server '%s': %s",
++                             self.env.server,
++                             self.Command.ping()[u'summary'])
++
++    def handle(self, request):
++        request[IPA_SECTIONNAME] = self
++        return None
++
++    # rest is interface and initialization
++
++    def _gssapi_config(self):
++        # set client keytab env var for authentication
++        if self.keytab is not None:
++            os.environ['KRB5_CLIENT_KTNAME'] = self.keytab
++        if self.ccache is not None:
++            os.environ['KRB5CCNAME'] = self.ccache
++        if self.krb5config is not None:
++            os.environ['KRB5_CONFIG'] = self.krb5config
++
++        self.principal = self._gssapi_cred()
++        self.logger.info(u"Kerberos principal '%s'", self.principal)
++
++    def _gssapi_cred(self):
++        try:
++            return get_principal()
++        except Exception:
++            self.logger.exception(
++                "Unable to get principal from GSSAPI. Are you missing a "
++                "TGT or valid Kerberos keytab?"
++            )
++            raise
++
++    def _bootstrap(self):
++        # TODO: bandaid for "A PKCS #11 module returned CKR_DEVICE_ERROR"
++        # https://github.com/avocado-framework/avocado/issues/1112#issuecomment-206999400
++        os.environ['NSS_STRICT_NOFORK'] = 'DISABLED'
++        self._api.bootstrap(**self._ipa_config)
++        self._api.finalize()
++
++    @property
++    def Command(self):
++        return self._api.Command  # pylint: disable=no-member
++
++    @property
++    def env(self):
++        return self._api.env  # pylint: disable=no-member
++
++    def __enter__(self):
++        # pylint: disable=no-member
++        self._gssapi_cred()
++        if not self._api.Backend.rpcclient.isconnected():
++            self._api.Backend.rpcclient.connect()
++        # pylint: enable=no-member
++        return self
++
++    def __exit__(self, exc_type, exc_val, exc_tb):
++        # pylint: disable=no-member
++        if self._api.Backend.rpcclient.isconnected():
++            self._api.Backend.rpcclient.disconnect()
++        # pylint: enable=no-member
++
++
++if __name__ == '__main__':
++    from custodia.compat import configparser
++    from custodia.log import setup_logging
++
++    parser = configparser.ConfigParser(
++        interpolation=configparser.ExtendedInterpolation()
++    )
++    parser.read_string(u"""
++    [auth:ipa]
++    handler = IPAInterface
++    """)
++
++    setup_logging(debug=True, auditfile=None)
++    IPAInterface(parser, "auth:ipa")
+diff --git a/src/custodia/ipa/vault.py b/src/custodia/ipa/vault.py
+new file mode 100644
+index 0000000..3c4a4b3
+--- /dev/null
++++ b/src/custodia/ipa/vault.py
+@@ -0,0 +1,245 @@
++# Copyright (C) 2016  Custodia Project Contributors - see LICENSE file
++"""FreeIPA vault store (PoC)
++"""
++from __future__ import absolute_import
++
++from ipalib.errors import AuthorizationError, DuplicateEntry, NotFound
++
++import six
++
++from custodia.plugin import CSStore, PluginOption
++from custodia.plugin import (
++    CSStoreDenied, CSStoreError, CSStoreExists, CSStoreUnsupported
++)
++
++from .interface import IPAInterface
 +
 +
 +def krb5_unparse_principal_name(name):
@@ -204,57 +882,6 @@ index 0000000..f681c54
 +        return None, prefix, realm
 +
 +
-+class FreeIPA(object):
-+    """FreeIPA wrapper
-+
-+    Custodia uses a forking server model. We can bootstrap FreeIPA API in
-+    the main process. Connections must be created in the client process.
-+    """
-+    def __init__(self, api=None, ipa_context='cli', ipa_confdir=None,
-+                 ipa_debug=False):
-+        if api is None:
-+            self._api = ipalib.api
-+        else:
-+            self._api = api
-+        self._ipa_config = dict(
-+            context=ipa_context,
-+            debug=ipa_debug,
-+            log=None,  # disable logging to file
-+        )
-+        if ipa_confdir is not None:
-+            self._ipa_config['confdir'] = ipa_confdir
-+        self._bootstrap()
-+
-+    @property
-+    def Command(self):
-+        return self._api.Command  # pylint: disable=no-member
-+
-+    @property
-+    def env(self):
-+        return self._api.env  # pylint: disable=no-member
-+
-+    def _bootstrap(self):
-+        if not self._api.isdone('bootstrap'):
-+            # TODO: bandaid for "A PKCS #11 module returned CKR_DEVICE_ERROR"
-+            # https://github.com/avocado-framework/avocado/issues/1112#issuecomment-206999400
-+            os.environ['NSS_STRICT_NOFORK'] = 'DISABLED'
-+            self._api.bootstrap(**self._ipa_config)
-+            self._api.finalize()
-+
-+    def __enter__(self):
-+        # pylint: disable=no-member
-+        if not self._api.Backend.rpcclient.isconnected():
-+            self._api.Backend.rpcclient.connect()
-+        # pylint: enable=no-member
-+        return self
-+
-+    def __exit__(self, exc_type, exc_val, exc_tb):
-+        # pylint: disable=no-member
-+        if self._api.Backend.rpcclient.isconnected():
-+            self._api.Backend.rpcclient.disconnect()
-+        # pylint: enable=no-member
-+
-+
 +class IPAVault(CSStore):
 +    # vault arguments
 +    principal = PluginOption(
@@ -271,60 +898,29 @@ index 0000000..f681c54
 +        "auto-discovered from GSSAPI"
 +    )
 +
-+    # Kerberos flags
-+    krb5config = PluginOption(str, None, "Kerberos krb5.conf override")
-+    keytab = PluginOption(str, None, "Kerberos keytab for auth")
-+    ccache = PluginOption(
-+        str, None, "Kerberos ccache, e,g. FILE:/path/to/ccache")
-+
-+    # ipalib.api arguments
-+    ipa_confdir = PluginOption(str, None, "IPA confdir override")
-+    ipa_context = PluginOption(str, "cli", "IPA bootstrap context")
-+    ipa_debug = PluginOption(bool, False, "debug mode for ipalib")
-+
-+    def __init__(self, config, section=None):
++    def __init__(self, config, section=None, api=None):
 +        super(IPAVault, self).__init__(config, section)
-+        # configure Kerberos / GSSAPI and acquire principal
-+        gssapi_principal = self._gssapi()
-+        self.logger.info(u"Vault uses Kerberos principal '%s'",
-+                         gssapi_principal)
++        self._vault_args = None
++        self.ipa = None
 +
-+        # bootstrap FreeIPA API
-+        self.ipa = FreeIPA(
-+            ipa_confdir=self.ipa_confdir,
-+            ipa_debug=self.ipa_debug,
-+            ipa_context=self.ipa_context,
-+        )
++    def finalize_init(self, config, cfgparser, context=None):
++        super(IPAVault, self).finalize_init(config, cfgparser, context)
++
++        if self.ipa is not None:
++            return
++        self.ipa = IPAInterface.from_config(config)
++        self.ipa.finalize_init(config, cfgparser, context=self)
++
 +        # connect
 +        with self.ipa:
-+            self.logger.info("IPA server '%s': %s",
-+                             self.ipa.env.server,
-+                             self.ipa.Command.ping()[u'summary'])
 +            # retrieve and cache KRA transport cert
 +            response = self.ipa.Command.vaultconfig_show()
 +            servers = response[u'result'][u'kra_server_server']
 +            self.logger.info("KRA server(s) %s", ', '.join(servers))
 +
 +        service, user_host, realm = krb5_unparse_principal_name(
-+            gssapi_principal)
++            self.ipa.principal)
 +        self._init_vault_args(service, user_host, realm)
-+
-+    def _gssapi(self):
-+        # set client keytab env var for authentication
-+        if self.keytab is not None:
-+            os.environ['KRB5_CLIENT_KTNAME'] = self.keytab
-+        if self.ccache is not None:
-+            os.environ['KRB5CCNAME'] = self.ccache
-+        if self.krb5config is not None:
-+            os.environ['KRB5_CONFIG'] = self.krb5config
-+        try:
-+            return get_principal()
-+        except Exception:
-+            self.logger.error(
-+                "Unable to get principal from GSSAPI. Are you missing a "
-+                "TGT or valid Kerberos keytab?"
-+            )
-+            raise
 +
 +    def _init_vault_args(self, service, user_host, realm):
 +        if self.vault_type is None:
@@ -377,7 +973,7 @@ index 0000000..f681c54
 +                result = ipa.Command.vault_retrieve(
 +                    key, **self._vault_args)
 +            except NotFound as e:
-+                self.logger.info(str(e))
++                self.logger.info("Key '%s' not found: %s", key, e)
 +                return None
 +            except Exception:
 +                msg = "Failed to retrieve entry {}".format(key)
@@ -394,9 +990,14 @@ index 0000000..f681c54
 +            try:
 +                ipa.Command.vault_add(
 +                    key, ipavaulttype=u"standard", **self._vault_args)
-+            except DuplicateEntry:
++            except DuplicateEntry as e:
++                self.logger.info("Vault '%s' already exists: %s", key, e)
 +                if not replace:
 +                    raise CSStoreExists(key)
++            except AuthorizationError:
++                msg = "vault_add denied for entry {}".format(key)
++                self.logger.exception(msg)
++                raise CSStoreDenied(msg)
 +            except Exception:
 +                msg = "Failed to add entry {}".format(key)
 +                self.logger.exception(msg)
@@ -404,19 +1005,27 @@ index 0000000..f681c54
 +            try:
 +                ipa.Command.vault_archive(
 +                    key, data=value, **self._vault_args)
++            except AuthorizationError:
++                msg = "vault_archive denied for entry {}".format(key)
++                self.logger.exception(msg)
++                raise CSStoreDenied(msg)
 +            except Exception:
 +                msg = "Failed to archive entry {}".format(key)
 +                self.logger.exception(msg)
 +                raise CSStoreError(msg)
 +
 +    def span(self, key):
-+        raise CSStoreError("span is not implemented")
++        raise CSStoreUnsupported("span is not implemented")
 +
 +    def list(self, keyfilter=None):
 +        with self.ipa as ipa:
 +            try:
 +                result = ipa.Command.vault_find(
 +                    ipavaulttype=u"standard", **self._vault_args)
++            except AuthorizationError:
++                msg = "vault_find denied"
++                self.logger.exception(msg)
++                raise CSStoreDenied(msg)
 +            except Exception:
 +                msg = "Failed to list entries"
 +                self.logger.exception(msg)
@@ -438,6 +1047,10 @@ index 0000000..f681c54
 +                ipa.Command.vault_del(key, **self._vault_args)
 +            except NotFound:
 +                return False
++            except AuthorizationError:
++                msg = "vault_del denied for entry {}".format(key)
++                self.logger.exception(msg)
++                raise CSStoreDenied(msg)
 +            except Exception:
 +                msg = "Failed to delete entry {}".format(key)
 +                self.logger.exception(msg)
@@ -446,99 +1059,205 @@ index 0000000..f681c54
 +                return True
 +
 +
-+if __name__ == '__main__':
++def test():
 +    from custodia.compat import configparser
++    from custodia.log import setup_logging
++    from .interface import IPA_SECTIONNAME
 +
 +    parser = configparser.ConfigParser(
 +        interpolation=configparser.ExtendedInterpolation()
 +    )
 +    parser.read_string(u"""
++    [auth:ipa]
++    handler = IPAInterface
 +    [store:ipa_vault]
++    handler = IPAVault
 +    """)
 +
-+    v = IPAVault(parser, "store:ipa_vault")
++    setup_logging(debug=True, auditfile=None)
++    config = {
++        'authenticators': {
++            'ipa': IPAInterface(parser, IPA_SECTIONNAME)
++        }
++    }
++    v = IPAVault(parser, 'store:ipa_vault')
++    v.finalize_init(config, parser, None)
 +    v.set('foo', 'bar', replace=True)
 +    print(v.get('foo'))
 +    print(v.list())
 +    v.cut('foo')
 +    print(v.list())
-diff --git a/setup.py b/setup.py
-index c8f270d..4bf096c 100755
---- a/setup.py
-+++ b/setup.py
-@@ -15,10 +15,14 @@ requirements = [
-     'requests'
- ]
- 
-+# extra requirements
-+ipa_requires = ['ipalib >= 4.5.0', 'ipaclient >= 4.5.0']
 +
- # test requirements
--test_requires = ['coverage', 'pytest']
-+test_requires = ['coverage', 'pytest', 'mock'] + ipa_requires
- 
- extras_require = {
-+    'ipa': ipa_requires,
-     'test': test_requires,
-     'test_docs': ['docutils', 'markdown'],
-     'test_pep8': ['flake8', 'flake8-import-order', 'pep8-naming'],
-@@ -66,6 +70,7 @@ custodia_consumers = [
- custodia_stores = [
-     'EncryptedOverlay = custodia.store.encgen:EncryptedOverlay',
-     'EncryptedStore = custodia.store.enclite:EncryptedStore',
-+    'IPAVault = custodia.ipa.vault:IPAVault',
-     'SqliteStore = custodia.store.sqlite:SqliteStore',
- ]
- 
-@@ -84,6 +89,7 @@ setup(
-         'custodia',
-         'custodia.cli',
-         'custodia.httpd',
-+        'custodia.ipa',
-         'custodia.message',
-         'custodia.server',
-         'custodia.store',
++
++if __name__ == '__main__':
++    test()
 diff --git a/tests/test_ipa.py b/tests/test_ipa.py
 new file mode 100644
-index 0000000..eb4d7fa
+index 0000000..a1bb7a3
 --- /dev/null
 +++ b/tests/test_ipa.py
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,428 @@
 +# Copyright (C) 2017  Custodia project Contributors, for licensee see COPYING
++from __future__ import absolute_import
 +
++import base64
 +import os
 +
-+import ipalib
++from cryptography import x509
++from cryptography.hazmat.backends import default_backend
++from cryptography.hazmat.primitives import serialization
 +
-+import mock
++import ipaclient.plugins.vault
++
++import ipalib
++from ipalib.errors import NotFound
++
++import pkg_resources
 +
 +import pytest
 +
 +from custodia.compat import configparser
-+from custodia.ipa.vault import FreeIPA, IPAVault, krb5_unparse_principal_name
++from custodia.ipa.certrequest import IPACertRequest
++from custodia.ipa.interface import IPAInterface, IPA_SECTIONNAME
++from custodia.ipa.vault import IPAVault, krb5_unparse_principal_name
++
++try:
++    from unittest import mock
++except ImportError:
++    try:
++        import mock
++    except ImportError:
++        mock = None
 +
 +
 +CONFIG = u"""
++[DEFAULT]
++rundir = /tmp/invalid
++
 +[store:ipa_service]
++handler = IPAVault
 +vault_type = service
 +principal = custodia/ipa.example
 +
 +[store:ipa_user]
++handler = IPAVault
 +vault_type = user
 +user = john
 +
 +[store:ipa_shared]
++handler = IPAVault
 +vault_type = shared
 +
 +[store:ipa_invalid]
++handler = IPAVault
 +vault_type = invalid
 +
 +[store:ipa_autodiscover]
++handler = IPAVault
 +
-+[store:ipa_environ]
++[store:certreq]
++handler = IPACertRequest
++backing_store = ipa_service
++
++[auth:ipa]
++handler = IPAInterface
 +krb5config = /path/to/krb5.conf
 +keytab = /path/to/custodia.keytab
 +ccache = FILE:/path/to/ccache
++"""
++
++RSA_KEY = b"""
++-----BEGIN RSA PRIVATE KEY-----
++MIIEpAIBAAKCAQEAvHLiqvX6NCV6iZtquXmqu0AlyfDmcoNK2d27dsWZVfPekvGH
++T95RYASD+ly+kwzvtKBIZQHsPOaYpQjzOfpzCOwUWZcHjj4g8/fp99MdhMyWzXY0
++U8mytZND7ZP2LW2kmkdP2G8Euw2TB2hCbWguVyI3pNXbsLxzquR8Xr/AbM8VJBTO
++Qd/8tXen3GoXpYvDY2PQs1MQQy4yKpeVj/j146hCh+Ahw4sO5yLk+FXjZ+ZfSBnh
++2uBjHqDG+EbvLLDJ2DRFO6cMPPjK3Q4evWOQzl6kwN2uwGfLWPRiYZ1KwcdUieHA
++eKTYb8Yc832bc7CsHlEQpvKohTv5vyVb2RTsTwIDAQABAoIBAQCdPovOtbNSIdfO
++zOVP4KrK1mrxx1azRMSHaJKNN7KL2xLksC8FQO/L29i4Zv0KPOgjYv8lcWZLJutG
++AmLaBRZJ4pvUacZ/NW5PxJTxGrLt5b0Lsk9Vft7kzf4HVsg6/ds0dL62TWS4JEqE
++CsYq/px0TnP50g0fuxAVD9SLRxtsbiyDbYUxcsVrPA9KHmLdRaebhw44IeBqvY9d
++Tl+SxzBtyah8N8rlzQIo/O3P+HHx4CvBBXfGNO4tAXM9DgWHgTiBMku6X4OeXikQ
++cNfPygvUF8Npt4ZpvqFlUWSzkU/+vfBQKzd0m9PLNV0SVe743EucrmDWFpHGbwns
++TgHfRtqhAoGBAOCwlpnVyJ8NHrxR53VBQE+M3VgLrxtzRjQR21K7XAlBpLNs3+c0
++dGE2seY/HFaXEwrmQNFNEAo2OKTYkBrtI82h6/93vq4OFlVZCxABlw9PJ0LZfL9P
++8HMdM5oaldMc1NsDD8lc/M2PAhFTni9zmvmzEdCWO/hlJHH876GSjiBxAoGBANa1
++dmcZGuMIu/c9KpsvIEp7ZknFKlKdQQlB8lTPl0vgC9DN4QDo8WfbgTi2Q9Xcs5ni
++qx9uzlGHwwx9LR6b8D+nhngpX/2beD8T+me8vY9gYwdvMci5JhNdwAO2T0Ry4V+a
++/8AthOb/+cWjvoPitT6nXXdLM1po4hmt+jVCEji/AoGAM4arcqnA8SB8HOmXb59A
++FT4TgF5lkKD1x3kU17sZlxHTqEXebtHromN9lnSAlibc+hHlaVoHxJ+8i6kSGuqo
++3D42tYYLVzTp0Da0P75tmtgnA8CGSAUX+f4HWF6iXyBse7EPDLljS+xwp/KKAw26
++y2pSOohJRmRDYFSFy4KlTzECgYBPqaxwvEPZkNgM98jjIy0b9YUSQfFeDbKfuLQs
+++4jrQgmgQ4MET2miWzMq05V/uA97PTq4wugSIAkijR88iCcvtvyRgOh4tEJ9RPBX
++pRPAKscTbxJNo0SZUuN3fSEUCHvOeTgDGeCBxN/rkMGTNX6B7J8lL+Wx2dBqLr7z
++G7yfCQKBgQDWHff2GHJaSyEY6N8tfU7bVbhcBFuBGdxaPSBiA1PYHJWjyI7TI5ma
++v7cR0gAfhieZtwQuRJUjgB2ZbQXfmiLEJpyENxiNS2Sc/QfddzlprMZb2gcTenG1
++z6KdW9BiwDOdQhy5vCL09uuR/CZle47TvOdgIn7N4HcGzbUNRnEQ+A==
++-----END RSA PRIVATE KEY-----
++"""
++
++CERT_PEM = b"""
++Issuer: organizationName=IPA.EXAMPLE, commonName=Certificate Authority
++Subject: organizationName=IPA.EXAMPLE, commonName=client1.ipa.example
++Serial Number: 43
++Validity:
++    Not Before: 2017-04-12 10:10:12
++    Not After: 2019-04-13 10:10:12
++-----BEGIN CERTIFICATE-----
++MIIEMTCCAxmgAwIBAgIBKzANBgkqhkiG9w0BAQsFADA2MRQwEgYDVQQKDAtJUEEu
++RVhBTVBMRTEeMBwGA1UEAwwVQ2VydGlmaWNhdGUgQXV0aG9yaXR5MB4XDTE3MDQx
++MjEwMTAxMloXDTE5MDQxMzEwMTAxMlowNDEUMBIGA1UECgwLSVBBLkVYQU1QTEUx
++HDAaBgNVBAMME2NsaWVudDEuaXBhLmV4YW1wbGUwggEiMA0GCSqGSIb3DQEBAQUA
++A4IBDwAwggEKAoIBAQC8cuKq9fo0JXqJm2q5eaq7QCXJ8OZyg0rZ3bt2xZlV896S
++8YdP3lFgBIP6XL6TDO+0oEhlAew85pilCPM5+nMI7BRZlweOPiDz9+n30x2EzJbN
++djRTybK1k0Ptk/YtbaSaR0/YbwS7DZMHaEJtaC5XIjek1duwvHOq5Hxev8BszxUk
++FM5B3/y1d6fcaheli8NjY9CzUxBDLjIql5WP+PXjqEKH4CHDiw7nIuT4VeNn5l9I
++GeHa4GMeoMb4Ru8ssMnYNEU7pww8+MrdDh69Y5DOXqTA3a7AZ8tY9GJhnUrBx1SJ
++4cB4pNhvxhzzfZtzsKweURCm8qiFO/m/JVvZFOxPAgMBAAGjggFKMIIBRjAfBgNV
++HSMEGDAWgBQtd7FcS4X0qxR58HZPpjkAQRMNKDA9BggrBgEFBQcBAQQxMC8wLQYI
++KwYBBQUHMAGGIWh0dHA6Ly9pcGEtY2EuaXBhLmV4YW1wbGUvY2Evb2NzcDAOBgNV
++HQ8BAf8EBAMCBPAwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMHYGA1Ud
++HwRvMG0wa6AzoDGGL2h0dHA6Ly9pcGEtY2EuaXBhLmV4YW1wbGUvaXBhL2NybC9N
++YXN0ZXJDUkwuYmluojSkMjAwMQ4wDAYDVQQKDAVpcGFjYTEeMBwGA1UEAwwVQ2Vy
++dGlmaWNhdGUgQXV0aG9yaXR5MB0GA1UdDgQWBBRhaPmYwf/s6nCwIDSnnZDi/Fpv
++jzAeBgNVHREEFzAVghNjbGllbnQxLmlwYS5leGFtcGxlMA0GCSqGSIb3DQEBCwUA
++A4IBAQChdJscTm+7ceiV4sieKWoZnZxFBEdipv1qErQUcmp3mEGKWrwksOdHt4vs
++iYC5o8ITztEFnmGOEiqUJtG+kPF1/E2YyeAZz/Jshm2tTNfc0lFcXo5yh6YaWxkS
++Ld9RLUstjx6nEDoRp94Xiv6oA7amXaqxUYF+IFTywCS8ydqjw4YarIcTOYaNgnpB
++XS28/NgMWwRMen6TsKheo31b0ZWZhj5OhdjYGc4r8eoZqYNw7FdJLFRCygCxSUdr
++B6PZz8xdp5VVPhmhhMVMuBsiflOU5zVQ4G8WDeWq7UTIceZ30nLvD80pFwYXQr0A
++AgUFtdTv7EX25GAVtJtXPgfWkaQQ
++-----END CERTIFICATE-----
++"""
++
++CA_PEM = b"""
++Issuer: organizationName=IPA.EXAMPLE, commonName=Certificate Authority
++Subject: organizationName=IPA.EXAMPLE, commonName=Certificate Authority
++Serial Number: 1
++Validity:
++    Not Before: 2017-04-05 07:56:09
++    Not After: 2037-04-05 07:56:09
++-----BEGIN CERTIFICATE-----
++MIIDizCCAnOgAwIBAgIBATANBgkqhkiG9w0BAQsFADA2MRQwEgYDVQQKDAtJUEEu
++RVhBTVBMRTEeMBwGA1UEAwwVQ2VydGlmaWNhdGUgQXV0aG9yaXR5MB4XDTE3MDQw
++NTA3NTYwOVoXDTM3MDQwNTA3NTYwOVowNjEUMBIGA1UECgwLSVBBLkVYQU1QTEUx
++HjAcBgNVBAMMFUNlcnRpZmljYXRlIEF1dGhvcml0eTCCASIwDQYJKoZIhvcNAQEB
++BQADggEPADCCAQoCggEBAKuWxKJzcBM34GuCO02Z4xxqWTZydFn6G9Kyfu86rqxf
+++i9lXQXa5/GnbSiK13XSVaakd5WlbPmcPmzIQy33WFgr2uKXEYBXgia6zZVIwsh5
++fhlSwN+WCNBykyyC83s73FV8QVuGE0sZnCPt+H7zAFrcC2oyLopsQf+twzVEuZGr
++ONDalSxdHdXUYnB1nIlNuDdwb3e9zOHcdqhwN3HMqoNrjIWx7qa2wvf6KcHCoLrK
++VnlEqbk/9llDeXf03NatEyqfa08GlDoHgqqrROMK0vAbmz+nGv9YFHLuX344ZJ58
++zIBbrp/sUzWThKyXlN6U8t6Wdkx3/TAyORVr8cq6YgcCAwEAAaOBozCBoDAfBgNV
++HSMEGDAWgBQtd7FcS4X0qxR58HZPpjkAQRMNKDAPBgNVHRMBAf8EBTADAQH/MA4G
++A1UdDwEB/wQEAwIBxjAdBgNVHQ4EFgQULXexXEuF9KsUefB2T6Y5AEETDSgwPQYI
++KwYBBQUHAQEEMTAvMC0GCCsGAQUFBzABhiFodHRwOi8vaXBhLWNhLmlwYS5leGFt
++cGxlL2NhL29jc3AwDQYJKoZIhvcNAQELBQADggEBAKgm8hNI8pgEUY3muAyqO6HO
++iBPH3OEljWBNsHNqf9RYSXq148xIbX1X6clSPY4cKyQPzJtkBnesoU+ybuFH/oDV
++w+9M51my5zCR0GmHMGW1xbgeKqSEINBXTUy5af2AEzIcOlI5d1o+OBTpxGLZp+Mt
++KuE+T9jdkajHIOK3sk1d7BoHaXcwt/SOev2jPpTJpHZ8bEB/msGB4O+p5sMc4Xot
++sGeWEV2/0AtqxhuRxao87NNAqLvP1+UmCq2Rx9fFh2DH4+cuAl+/HU1/mFharzTr
++K3quV1cduocb2y4lwLF0I6aRqe73pzLnTvoUjnhutYoCMjKT0ebFPZIHbVgYPTI=
++-----END CERTIFICATE-----
 +"""
 +
 +vault_parametrize = pytest.mark.parametrize(
@@ -551,18 +1270,26 @@ index 0000000..eb4d7fa
 +)
 +
 +
-+class TestCustodiaIPA:
++@pytest.mark.skipif(mock is None, reason='requires mock')
++class BaseTest(object):
 +    def setup_method(self, method):
 +        self.parser = configparser.ConfigParser(
 +            interpolation=configparser.ExtendedInterpolation(),
 +        )
 +        self.parser.read_string(CONFIG)
++        # config
++        self.config = {
++            'debug': False,
++            'authenticators': {},
++            'stores': {},
++        }
 +        # mocked ipalib.api
 +        self.p_api = mock.patch('ipalib.api', autospec=ipalib.api)
 +        self.m_api = self.p_api.start()
 +        self.m_api.isdone.return_value = False
 +        self.m_api.env = mock.Mock()
 +        self.m_api.env.server = 'server.ipa.example'
++        self.m_api.env.realm = u'IPA.EXAMPLE'
 +        self.m_api.Backend = mock.Mock()
 +        self.m_api.Command = mock.Mock()
 +        self.m_api.Command.ping.return_value = {
@@ -574,9 +1301,10 @@ index 0000000..eb4d7fa
 +            }
 +        }
 +        # mocked get_principal
-+        self.p_get_principal = mock.patch('custodia.ipa.vault.get_principal')
++        self.p_get_principal = mock.patch(
++            'custodia.ipa.interface.get_principal')
 +        self.m_get_principal = self.p_get_principal.start()
-+        self.m_get_principal.return_value = 'custodia/ipa.example@IPA.EXAMPLE'
++        self.m_get_principal.return_value = None
 +        # mocked environ (empty dict)
 +        self.p_env = mock.patch.dict('os.environ', clear=True)
 +        self.p_env.start()
@@ -586,56 +1314,88 @@ index 0000000..eb4d7fa
 +        self.p_get_principal.stop()
 +        self.p_env.stop()
 +
++
++class TestCustodiaIPA(BaseTest):
++
 +    def test_api_init(self):
++        assert os.environ == {}
 +        m_api = self.m_api
-+        freeipa = FreeIPA(api=m_api)
++        ipa = IPAInterface(
++            self.parser,
++            IPA_SECTIONNAME,
++            api=m_api
++        )
++        self.config['authenticators']['ipa'] = ipa
++        ipa.finalize_init(self.config, self.parser, None)
++        assert (self.config['authenticators']['ipa'] is
++                IPAInterface.from_config(self.config))
++
 +        m_api.isdone.assert_called_once_with('bootstrap')
 +        m_api.bootstrap.assert_called_once_with(
 +            context='cli',
 +            debug=False,
++            dot_ipa=u'/tmp/invalid',
++            home=u'/tmp/invalid',
 +            log=None,
 +        )
 +
 +        m_api.Backend.rpcclient.isconnected.return_value = False
-+        with freeipa:
-+            m_api.Backend.rpcclient.connect.assert_called_once()
++        with ipa:
++            m_api.Backend.rpcclient.connect.assert_any_call()
 +            m_api.Backend.rpcclient.isconnected.return_value = True
-+        m_api.Backend.rpcclient.disconnect.assert_called_once()
++        m_api.Backend.rpcclient.disconnect.assert_any_call()
 +
-+        assert os.environ == dict(NSS_STRICT_NOFORK='DISABLED')
-+
-+    def test_api_environ(self):
-+        assert os.environ == {}
-+        IPAVault(self.parser, 'store:ipa_environ')
 +        assert os.environ == dict(
 +            NSS_STRICT_NOFORK='DISABLED',
 +            KRB5_CONFIG='/path/to/krb5.conf',
 +            KRB5_CLIENT_KTNAME='/path/to/custodia.keytab',
 +            KRB5CCNAME='FILE:/path/to/ccache',
 +        )
++        if hasattr(ipaclient.plugins.vault, 'USER_CACHE_PATH'):
++            assert ipaclient.plugins.vault.USER_CACHE_PATH == '/tmp/invalid'
++
++
++class TestCustodiaIPAVault(BaseTest):
++    def mkinstance(self, principal, section):
++        self.m_get_principal.return_value = principal
++
++        ipa = IPAInterface(self.parser, IPA_SECTIONNAME)
++        self.config['authenticators']['ipa'] = ipa
++        ipa.finalize_init(self.config, self.parser, None)
++        assert (self.config['authenticators']['ipa'] is
++                IPAInterface.from_config(self.config))
++
++        vault = IPAVault(self.parser, section)
++        self.config['stores'][section] = vault
++        vault.finalize_init(self.config, self.parser, None)
++        return vault
 +
 +    def test_invalid_vault_type(self):
-+        pytest.raises(ValueError, IPAVault, self.parser, 'store:ipa_invalid')
++        pytest.raises(
++            ValueError,
++            self.mkinstance,
++            'custodia/ipa.example@IPA.EXAMPLE',
++            'store:ipa_invalid'
++        )
 +
 +    def test_vault_autodiscover_service(self):
-+        self.m_get_principal.return_value = 'custodia/ipa.example@IPA.EXAMPLE'
-+        ipa = IPAVault(self.parser, 'store:ipa_autodiscover')
++        ipa = self.mkinstance('custodia/ipa.example@IPA.EXAMPLE',
++                              'store:ipa_autodiscover')
 +        assert ipa.vault_type == 'service'
 +        assert ipa.principal == 'custodia/ipa.example'
 +        assert ipa.user is None
 +
 +    def test_vault_autodiscover_user(self):
-+        self.m_get_principal.return_value = 'john@IPA.EXAMPLE'
-+        ipa = IPAVault(self.parser, 'store:ipa_autodiscover')
++        ipa = self.mkinstance('john@IPA.EXAMPLE', 'store:ipa_autodiscover')
 +        assert ipa.vault_type == 'user'
 +        assert ipa.principal is None
 +        assert ipa.user == 'john'
 +
 +    @vault_parametrize
 +    def test_vault_set(self, plugin, vault_type, vault_args):
-+        ipa = IPAVault(self.parser, plugin)
++        ipa = self.mkinstance('john@IPA.EXAMPLE', plugin)
 +        assert ipa.vault_type == vault_type
-+        self.m_api.Command.ping.assert_called_once()
++        self.m_api.Command.ping.assert_called_once_with()
 +        ipa.set('directory/testkey', 'testvalue')
 +        self.m_api.Command.vault_add.assert_called_once_with(
 +            'directory__testkey',
@@ -650,7 +1410,7 @@ index 0000000..eb4d7fa
 +
 +    @vault_parametrize
 +    def test_vault_get(self, plugin, vault_type, vault_args):
-+        ipa = IPAVault(self.parser, plugin)
++        ipa = self.mkinstance('custodia/ipa.example@IPA.EXAMPLE', plugin)
 +        assert ipa.vault_type == vault_type
 +        self.m_api.Command.vault_retrieve.return_value = {
 +            u'result': {
@@ -665,7 +1425,7 @@ index 0000000..eb4d7fa
 +
 +    @vault_parametrize
 +    def test_vault_list(self, plugin, vault_type, vault_args):
-+        ipa = IPAVault(self.parser, plugin)
++        ipa = self.mkinstance('custodia/ipa.example@IPA.EXAMPLE', plugin)
 +        assert ipa.vault_type == vault_type
 +        self.m_api.Command.vault_find.return_value = {
 +            u'result': [{'cn': [u'directory__testkey']}]
@@ -678,13 +1438,79 @@ index 0000000..eb4d7fa
 +
 +    @vault_parametrize
 +    def test_vault_cut(self, plugin, vault_type, vault_args):
-+        ipa = IPAVault(self.parser, plugin)
++        ipa = self.mkinstance('custodia/ipa.example@IPA.EXAMPLE', plugin)
 +        assert ipa.vault_type == vault_type
 +        ipa.cut('directory/testkey')
 +        self.m_api.Command.vault_del.assert_called_once_with(
 +            'directory__testkey',
 +            **vault_args
 +        )
++
++
++class TestCustodiaIPACertRequests(BaseTest):
++    def setup_method(self, method):
++        super(TestCustodiaIPACertRequests, self).setup_method(method)
++        cert = x509.load_pem_x509_certificate(CERT_PEM, default_backend())
++        cert_der = cert.public_bytes(serialization.Encoding.DER)
++        cert_stripped = base64.b64encode(cert_der)
++        ca = x509.load_pem_x509_certificate(CA_PEM, default_backend())
++        ca_der = ca.public_bytes(serialization.Encoding.DER)
++        self.m_api.Command.cert_request.return_value = {
++            u'result': {
++                u'subject': 'dummy subject',
++                u'request_id': 1,
++                u'serial_number': 1,
++                u'certificate': cert_stripped,
++                u'certificate_chain': (
++                    cert_der,
++                    ca_der,
++                )
++            }
++        }
++
++    def mkinstance(self, principal, section):
++        self.m_get_principal.return_value = principal
++
++        ipa = IPAInterface(self.parser, IPA_SECTIONNAME)
++        self.config['authenticators']['ipa'] = ipa
++        ipa.finalize_init(self.config, self.parser, None)
++        assert (self.config['authenticators']['ipa'] is
++                IPAInterface.from_config(self.config))
++
++        certreq = IPACertRequest(self.parser, section)
++        self.config['stores'][section] = certreq
++        storename = certreq.backing_store
++        storesection = u'store:{0}'.format(storename)
++
++        vault = IPAVault(self.parser, storesection)
++        self.config['stores'][storename] = vault
++        vault.finalize_init(self.config, self.parser, None)
++
++        # finalize last
++        certreq.finalize_init(self.config, self.parser, None)
++        return certreq
++
++    def test_get(self):
++        certreq = self.mkinstance(
++            'custodia/ipa.example@IPA.EXAMPLE', 'store:certreq')
++        self.m_api.Command.vault_retrieve.side_effect = NotFound(reason=u'')
++        certreq.get('keys/HTTP/client1.ipa.example')
++
++
++@pytest.mark.parametrize('group,name,cls', [
++    ('custodia.stores', 'IPAVault', IPAVault),
++    ('custodia.stores', 'IPACertRequest', IPACertRequest),
++    ('custodia.authenticators', 'IPAInterface', IPAInterface),
++])
++def test_plugins(group, name, cls, dist='custodia'):
++    ep = pkg_resources.get_entry_info(dist, group, name)
++    assert ep is not None
++    assert ep.dist.project_name == dist
++    if hasattr(ep, 'resolve'):
++        resolved = ep.resolve()
++    else:
++        resolved = ep.load(require=False)
++    assert resolved is cls
 +
 +
 +@pytest.mark.parametrize('principal,result', [

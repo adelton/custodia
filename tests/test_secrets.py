@@ -1,4 +1,5 @@
 # Copyright (C) 2015  Custodia Project Contributors - see LICENSE file
+from __future__ import absolute_import
 
 import logging
 import os
@@ -337,3 +338,76 @@ class SecretsTests(unittest.TestCase):
         self.assertEqual(rep['output'],
                          {"type": "simple", "value":
                           b64encode(b'1234').decode('utf-8')})
+
+    def test_10_LIST_subcontainer_and_keys(self):
+        # Create a container
+        req = {'remote_user': 'test',
+               'trail': ['test', 'container_a', '']}
+        rep = {'headers': {}}
+        self.POST(req, rep)
+        self.assertEqual(rep['code'], 201)
+
+        # Create a subcontainer over the parent container
+        req = {'remote_user': 'test',
+               'trail': ['test', 'container_a', 'subcontainer', '']}
+        rep = {'headers': {}}
+        self.POST(req, rep)
+        self.assertEqual(rep['code'], 201)
+
+        # Create a secret over the parent container
+        req = {'headers': {'Content-Type': 'application/json'},
+               'remote_user': 'test',
+               'trail': ['test', 'container_a', 'key2'],
+               'body': '{"type":"simple","value":"1234"}'.encode('utf-8')}
+        rep = {}
+        self.PUT(req, rep)
+
+        # Retrieve the container_a data
+        req = {'remote_user': 'test',
+               'trail': ['test', 'container_a', '']}
+        rep = {'headers': {}}
+        self.GET(req, rep)
+        # Verify that we can now distinguish between a subcontainer
+        # and a key
+        self.assertEqual(rep['output'], ['key2', 'subcontainer/'])
+        # Clean up
+        req = {'remote_user': 'test',
+               'trail': ['test', 'container_a', 'key2']}
+        self.DELETE(req, rep)
+        self.assertEqual(rep['code'], 204)
+
+        req = {'remote_user': 'test',
+               'trail': ['test', 'container_a', 'subcontainer', '']}
+        self.DELETE(req, rep)
+        self.assertEqual(rep['code'], 204)
+
+        req = {'remote_user': 'test',
+               'trail': ['test', 'container_a', '']}
+        self.DELETE(req, rep)
+        self.assertEqual(rep['code'], 204)
+
+    def test_11_GET_container(self):
+        # Create a container
+        req = {'remote_user': 'test',
+               'trail': ['test', 'container_a', '']}
+        rep = {'headers': {}}
+        self.POST(req, rep)
+        self.assertEqual(rep['code'], 201)
+
+        req = {'remote_user': 'test',
+               'trail': ['test', 'container_a', '']}
+        rep = {'headers': {}}
+        self.GET(req, rep)
+        self.assertEqual(rep['output'], [])
+
+        req = {'remote_user': 'test',
+               'trail': ['test', 'container_a']}
+        rep = {'headers': {}}
+        with self.assertRaises(HTTPError) as err:
+            self.GET(req, rep)
+            self.assertEqual(err.exception.code, 406)
+
+        req = {'remote_user': 'test',
+               'trail': ['test', 'container_a', '']}
+        self.DELETE(req, rep)
+        self.assertEqual(rep['code'], 204)

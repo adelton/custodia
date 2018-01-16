@@ -1,4 +1,6 @@
 # Copyright (C) 2015  Custodia Project Contributors - see LICENSE file
+from __future__ import absolute_import
+
 from __future__ import print_function
 
 import shutil
@@ -116,9 +118,9 @@ class SqliteStoreTests(unittest.TestCase):
         self.store.span('/span/2')
         self.store.span('/span/2/span')
         value = self.store.list('/span')
-        self.assertEqual(value, ['2', '2/span'])
+        self.assertEqual(value, ['2/', '2/span/'])
         value = self.store.list('/span/2')
-        self.assertEqual(value, ['span'])
+        self.assertEqual(value, ['span/'])
         value = self.store.list('/span/2/span')
         self.assertEqual(value, [])
 

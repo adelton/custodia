@@ -1,5 +1,4 @@
 # Copyright (C) 2015  Custodia Project Contributors - see LICENSE file
-
 from __future__ import absolute_import
 
 import os
@@ -43,6 +42,7 @@ server_version = "Secret/0.0.7"
 server_url = ${SOCKET_URL}
 auditlog = ${TEST_DIR}/test_audit.log
 debug = True
+makedirs = False
 tls_certfile = tests/ca/custodia-server.pem
 tls_keyfile = tests/ca/custodia-server.key
 tls_cafile = tests/ca/custodia-ca.pem
@@ -177,7 +177,6 @@ class CustodiaTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         env = os.environ.copy()
-        env['PYTHONPATH'] = './'
         cls.pexec = env.get('CUSTODIAPYTHON', sys.executable)
 
         if os.path.isdir(cls.test_dir):
@@ -222,7 +221,7 @@ class CustodiaTests(unittest.TestCase):
             cls.pexec,
             '-Wignore',
             '-m', 'custodia.cli',
-            '--debug',
+            '--verbose',
             '--header', 'REMOTE_USER=test',
             '--server', cls.socket_url
         ]
@@ -428,7 +427,7 @@ class CustodiaHTTPSTests(CustodiaTests):
             cls.pexec,
             '-Wignore',
             '-m', 'custodia.cli',
-            '--debug',
+            '--verbose',
             '--cafile', cls.ca_cert,
             '--certfile', cls.client_cert,
             '--keyfile', cls.client_key,

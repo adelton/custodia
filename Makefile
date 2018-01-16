@@ -5,6 +5,10 @@ TOX := $(PYTHON) -m tox --sitepackages
 DOCS_DIR = docs
 SERVER_SOCKET = $(CURDIR)/server_socket
 
+RPMBUILD = $(CURDIR)/dist/rpmbuild
+
+VERSION ?= $(shell $(PYTHON) setup.py --quiet version)
+
 DOCKER_CMD = docker
 DOCKER_IMAGE = latchset/custodia
 DOCKER_RELEASE_ARGS = --no-cache=true --pull=true
@@ -18,7 +22,7 @@ CONTAINER_CLI = $(CONTAINER_VOL)/custodia-cli
 define CUSTODIA_CLI_SCRIPT
 #!/bin/sh
 set -e
-PYTHONPATH=$(CURDIR) $(PYTHON) -Wignore -m custodia.cli \
+PYTHONPATH=$(CURDIR)/src $(PYTHON) -Wignore -m custodia.cli \
     --server $(CONTAINER_SOCKET) $$@
 endef
 export CUSTODIA_CLI_SCRIPT
@@ -75,9 +79,10 @@ docs: $(DOCS_DIR)/source/readme.rst
 	    $(DOCS_DIR)/source/spelling_wordlist.txt.bak
 	mv $(DOCS_DIR)/source/spelling_wordlist.txt.bak \
 	    $(DOCS_DIR)/source/spelling_wordlist.txt
-	$(MAKE) -C $(DOCS_DIR) html SPHINXBUILD="$(PYTHON) -m sphinx"
+	PYTHONPATH=$(CURDIR)/src \
+	    $(MAKE) -C $(DOCS_DIR) html SPHINXBUILD="$(PYTHON) -m sphinx"
 
-.PHONY: install egg_info run release
+.PHONY: install egg_info run packages release releasecheck
 install: clean_socket egg_info
 	$(PYTHON) setup.py install --root "$(PREFIX)"
 	install -d "$(PREFIX)/share/man/man7"
@@ -89,10 +94,13 @@ install: clean_socket egg_info
 egg_info:
 	$(PYTHON) setup.py egg_info
 
-release: clean egg_info README
-	@echo "dnf install python3-wheel python3-twine"
+packages: egg_info README
 	$(PYTHON) setup.py packages
 	cd dist && for F in *.gz; do sha512sum $${F} > $${F}.sha512sum.txt; done
+
+release: clean
+	@echo "dnf install python3-wheel python3-twine"
+	$(MAKE) packages
 	@echo -e "\nCustodia release"
 	@echo -e "----------------\n"
 	@echo "* Upload all release files to github:"
@@ -100,8 +108,44 @@ release: clean egg_info README
 	@echo "* Upload source dist and wheel to PyPI:"
 	@echo "  twine-3 upload dist/*.gz dist/*.whl"
 
+releasecheck: clean
+	@ # ensure README is rebuild
+	touch README.md
+	$(MAKE) README $(DOCS_DIR)/source/readme.rst
+	@ # check for version in spec
+	grep -q 'version $(VERSION)' custodia.spec || exit 1
+	@ # re-run tox
+	tox -r
+	$(MAKE) packages
+	$(MAKE) rpm
+	$(MAKE) dockerbuild
+
 run: egg_info
-	$(PYTHON) -m custodia.server $(CONF)
+	$(PYTHON) $(CURDIR)/bin/custodia $(CONF)
+
+
+.PHONY: rpmroot rpmfiles rpm
+rpmroot:
+	mkdir -p $(RPMBUILD)/BUILD
+	mkdir -p $(RPMBUILD)/RPMS
+	mkdir -p $(RPMBUILD)/SOURCES
+	mkdir -p $(RPMBUILD)/SPECS
+	mkdir -p $(RPMBUILD)/SRPMS
+
+rpmfiles: rpmroot packages
+	mv dist/custodia-$(VERSION).tar.gz* $(RPMBUILD)/SOURCES
+	cp contrib/config/custodia/custodia.conf $(RPMBUILD)/SOURCES/
+	cp contrib/config/systemd/system/custodia@.service $(RPMBUILD)/SOURCES/
+	cp contrib/config/systemd/system/custodia@.socket $(RPMBUILD)/SOURCES/
+	cp contrib/config/tmpfiles.d/custodia.conf $(RPMBUILD)/SOURCES/custodia.tmpfiles.conf
+
+rpm: clean rpmfiles egg_info
+	rpmbuild \
+	    --define "_topdir $(RPMBUILD)" \
+	    --define "version $(VERSION)" \
+	    -ba custodia.spec
+	echo "$(RPMBUILD)/RPMS"
+
 
 .PHONY: dockerbuild dockerdemo dockerdemoinit dockershell dockerreleasebuild
 dockerbuild:
@@ -137,9 +181,7 @@ dockershell:
 	$(DOCKER_CMD) exec -ti $(CONTAINER_NAME) /bin/bash
 
 dockerreleasebuild:
-	VERSION=$$($(PYTHON) -c \
-	    "import pkg_resources; print(pkg_resources.get_distribution('custodia').version)") && \
 	$(MAKE) dockerbuild \
 	    DOCKER_BUILD_ARGS="$(DOCKER_RELEASE_ARGS)" \
-	    DOCKER_IMAGE="$(DOCKER_IMAGE):$${VERSION}" && \
-	echo -e "\n\nRun: $(DOCKER_CMD) push $(DOCKER_IMAGE):$${VERSION}"
+	    DOCKER_IMAGE="$(DOCKER_IMAGE):$(VERSION)" && \
+	echo -e "\n\nRun: $(DOCKER_CMD) push $(DOCKER_IMAGE):$(VERSION)"

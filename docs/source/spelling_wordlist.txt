@@ -1,4 +1,5 @@
 api
+Args
 auditable
 auth
 authenticator
@@ -15,10 +16,14 @@ Barbican
 basename
 boolean
 cafile
+ccache
 certfile
+cfgparser
 cli
 conf
+confdpattern
 config
+configdir
 custodia
 Custodia
 decrypt
@@ -26,6 +31,7 @@ del
 enctype
 filename
 gid
+hostname
 http
 Httpd
 Indices
@@ -34,6 +40,9 @@ jku
 json
 kem
 keyfile
+libdir
+logdir
+makedirs
 metadata
 mkdir
 namespace
@@ -43,8 +52,10 @@ plugin
 Plugin
 plugins
 rmdir
+rundir
 runtime
 sak
+socketdir
 sqlite
 stackable
 subcontainers

@@ -1,25 +1,25 @@
-From 85001e92986b3e3f6b7dcbbe5d71cde99962fd58 Mon Sep 17 00:00:00 2001
+From 3ff3a2ea4686ac339a9d06515e8f8395c50e5d3b Mon Sep 17 00:00:00 2001
 From: Christian Heimes <cheimes@redhat.com>
 Date: Tue, 28 Mar 2017 17:49:39 +0200
 Subject: [PATCH 1/4] Vendor configparser-3.5.0
 
 Signed-off-by: Christian Heimes <cheimes@redhat.com>
 ---
- custodia/vendor/backports/__init__.py              |   11 +
- custodia/vendor/backports/configparser/__init__.py | 1390 ++++++++++++++++++++
- custodia/vendor/backports/configparser/helpers.py  |  171 +++
- custodia/vendor/configparser.py                    |   52 +
+ src/custodia/vendor/backports/__init__.py          |   11 +
+ .../vendor/backports/configparser/__init__.py      | 1390 ++++++++++++++++++++
+ .../vendor/backports/configparser/helpers.py       |  171 +++
+ src/custodia/vendor/configparser.py                |   52 +
  4 files changed, 1624 insertions(+)
- create mode 100644 custodia/vendor/backports/__init__.py
- create mode 100644 custodia/vendor/backports/configparser/__init__.py
- create mode 100644 custodia/vendor/backports/configparser/helpers.py
- create mode 100644 custodia/vendor/configparser.py
+ create mode 100644 src/custodia/vendor/backports/__init__.py
+ create mode 100644 src/custodia/vendor/backports/configparser/__init__.py
+ create mode 100644 src/custodia/vendor/backports/configparser/helpers.py
+ create mode 100644 src/custodia/vendor/configparser.py
 
-diff --git a/custodia/vendor/backports/__init__.py b/custodia/vendor/backports/__init__.py
+diff --git a/src/custodia/vendor/backports/__init__.py b/src/custodia/vendor/backports/__init__.py
 new file mode 100644
 index 0000000..f84d25c
 --- /dev/null
-+++ b/custodia/vendor/backports/__init__.py
++++ b/src/custodia/vendor/backports/__init__.py
 @@ -0,0 +1,11 @@
 +# A Python "namespace package" http://www.python.org/dev/peps/pep-0382/
 +# This always goes inside of a namespace package's __init__.py
@@ -32,11 +32,11 @@ index 0000000..f84d25c
 +    pkg_resources.declare_namespace(__name__)
 +except ImportError:
 +    pass
-diff --git a/custodia/vendor/backports/configparser/__init__.py b/custodia/vendor/backports/configparser/__init__.py
+diff --git a/src/custodia/vendor/backports/configparser/__init__.py b/src/custodia/vendor/backports/configparser/__init__.py
 new file mode 100644
 index 0000000..06d7a08
 --- /dev/null
-+++ b/custodia/vendor/backports/configparser/__init__.py
++++ b/src/custodia/vendor/backports/configparser/__init__.py
 @@ -0,0 +1,1390 @@
 +#!/usr/bin/env python
 +# -*- coding: utf-8 -*-
@@ -1428,11 +1428,11 @@ index 0000000..06d7a08
 +
 +    def __len__(self):
 +        return len(self._data)
-diff --git a/custodia/vendor/backports/configparser/helpers.py b/custodia/vendor/backports/configparser/helpers.py
+diff --git a/src/custodia/vendor/backports/configparser/helpers.py b/src/custodia/vendor/backports/configparser/helpers.py
 new file mode 100644
 index 0000000..c47662f
 --- /dev/null
-+++ b/custodia/vendor/backports/configparser/helpers.py
++++ b/src/custodia/vendor/backports/configparser/helpers.py
 @@ -0,0 +1,171 @@
 +#!/usr/bin/env python
 +# -*- coding: utf-8 -*-
@@ -1605,11 +1605,11 @@ index 0000000..c47662f
 +    from collections import ChainMap
 +except ImportError:
 +    ChainMap = _ChainMap
-diff --git a/custodia/vendor/configparser.py b/custodia/vendor/configparser.py
+diff --git a/src/custodia/vendor/configparser.py b/src/custodia/vendor/configparser.py
 new file mode 100644
 index 0000000..b899f9e
 --- /dev/null
-+++ b/custodia/vendor/configparser.py
++++ b/src/custodia/vendor/configparser.py
 @@ -0,0 +1,52 @@
 +#!/usr/bin/env python
 +# -*- coding: utf-8 -*-

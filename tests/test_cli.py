@@ -1,4 +1,5 @@
 # Copyright (C) 2015  Custodia Project Contributors - see LICENSE file
+from __future__ import absolute_import
 
 import os
 import socket
@@ -32,7 +33,7 @@ def find_free_address():
             if sock is not None:
                 sock.close()
     if err is not None:
-        raise err
+        raise err  # pylint: disable=raising-bad-type
     else:
         raise socket.error("getaddrinfo returns an empty list")
 
@@ -40,13 +41,12 @@ def find_free_address():
 class TestsCommandLine(unittest.TestCase):
     def _custodia_cli(self, *args):
         env = os.environ.copy()
-        env['PYTHONPATH'] = './'
         pexec = env.get('CUSTODIAPYTHON', sys.executable)
         cli = [
             pexec,
             '-Wignore',
             '-m', 'custodia.cli',
-            '--debug'
+            '--verbose'
         ]
         cli.extend(args)
 

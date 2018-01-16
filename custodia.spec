@@ -1,8 +1,6 @@
-%global custodiaipa_version 0.1.0
-
 Name:           custodia
-Version:        0.3.1
-Release:        4%{?dist}
+Version:        0.5.0
+Release:        1%{?dist}
 Summary:        A service to manage, retrieve and store secrets for other processes
 
 License:        GPLv3+
@@ -10,12 +8,13 @@ URL:            https://github.com/latchset/%{name}
 Source0:        https://github.com/latchset/%{name}/releases/download/v%{version}/%{name}-%{version}.tar.gz
 Source1:        https://github.com/latchset/%{name}/releases/download/v%{version}/%{name}-%{version}.tar.gz.sha512sum.txt
 Source2:        custodia.conf
+Source3:        custodia@.service
+Source4:        custodia@.socket
 Source5:        custodia.tmpfiles.conf
 Patch1:         0001-Vendor-configparser-3.5.0.patch
 Patch2:         0002-Patch-and-integrate-vendored-configparser.patch
 Patch3:         0003-Remove-etcd-store.patch
 Patch4:         0004-Vendor-custodia.ipa.patch
-Patch5:         0005-Add-workaround-for-missing-kra_server_server.patch
 
 
 BuildArch:      noarch
@@ -26,11 +25,15 @@ BuildRequires:      python-requests
 BuildRequires:      python-setuptools
 BuildRequires:      python-coverage
 BuildRequires:      pytest
+BuildRequires:      python-virtualenv
 BuildRequires:      python-docutils
 BuildRequires:      systemd-python
 BuildRequires:      python-ipalib
+BuildRequires:      python-ipaclient
+
 Requires:           python-custodia = %{version}-%{release}
 
+Requires(pre):      shadow-utils
 Requires(preun):    systemd-units
 Requires(postun):   systemd-units
 Requires(post):     systemd-units
@@ -83,16 +86,10 @@ grep `sha512sum %{SOURCE0}` %{SOURCE1} || (echo "Checksum invalid!" && exit 1)
 %patch2 -p1
 %patch3 -p1
 %patch4 -p1
-%patch5 -p1
 
 
 %build
 %{__python2} setup.py egg_info build
-
-
-%check
-export PYTHONPATH="%{buildroot}/%{python2_sitelib}"
-py.test --skip-servertest --ignore=tests/test_ipa.py --ignore=tests/test_cli.py
 
 
 %install
@@ -105,6 +102,7 @@ mkdir -p %{buildroot}/%{_unitdir}
 mkdir -p %{buildroot}/%{_tmpfilesdir}
 mkdir -p %{buildroot}/%{_localstatedir}/lib/custodia
 mkdir -p %{buildroot}/%{_localstatedir}/log/custodia
+mkdir -p %{buildroot}/%{_localstatedir}/run/custodia
 
 %{__python2} setup.py install --skip-build --root %{buildroot}
 mv %{buildroot}/%{_bindir}/custodia %{buildroot}/%{_sbindir}/custodia
@@ -112,22 +110,46 @@ install -m 644 -t "%{buildroot}/%{_mandir}/man7" man/custodia.7
 install -m 644 -t "%{buildroot}/%{_defaultdocdir}/custodia" README README.custodia.ipa API.md
 install -m 644 -t "%{buildroot}/%{_defaultdocdir}/custodia/examples" custodia.conf
 install -m 600 %{SOURCE2} %{buildroot}%{_sysconfdir}/custodia
+install -m 644 %{SOURCE3} %{buildroot}%{_unitdir}
+install -m 644 %{SOURCE4} %{buildroot}%{_unitdir}
 install -m 644 %{SOURCE5} %{buildroot}%{_tmpfilesdir}/custodia.conf
-# Recently setuptools stopped installing namespace __init__.py
-install -m 644 -t "%{buildroot}/%{python2_sitelib}/custodia" custodia/__init__.py
 
+
+%check
+# create a virtual env like tox
+mkdir -p build
+virtualenv --system-site-packages --python=%{__python2} build/testenv
+# copy package files into virtual env
+cp -R %{buildroot}%{python2_sitelib}/* build/testenv/lib/python2.7/site-packages/
+cp %{buildroot}%{_bindir}/custodia-cli build/testenv/bin
+cp %{buildroot}%{_sbindir}/custodia build/testenv/bin
+# test
+build/testenv/bin/python build/testenv/bin/custodia --help
+build/testenv/bin/python build/testenv/bin/custodia-cli --help
+build/testenv/bin/python build/testenv/bin/custodia-cli plugins
+build/testenv/bin/python -m py.test --skip-servertest
+# cleanup
+rm -rf build/testenv
+
+
+%pre
+getent group custodia >/dev/null || groupadd -r custodia
+getent passwd custodia >/dev/null || \
+    useradd -r -g custodia -d / -s /sbin/nologin \
+    -c "User for custodia" custodia
+exit 0
 
 %post
-%systemd_post custodia.socket
-%systemd_post custodia.service
+%systemd_post custodia@\*.socket
+%systemd_post custodia@\*.service
 
 %preun
-%systemd_preun custodia.socket
-%systemd_preun custodia.service
+%systemd_preun custodia@\*.socket
+%systemd_preun custodia@\*.service
 
 %postun
-%systemd_postun custodia.socket
-%systemd_postun custodia.service
+%systemd_postun custodia@\*.socket
+%systemd_postun custodia@\*.service
 
 
 %files
@@ -138,31 +160,34 @@ install -m 644 -t "%{buildroot}/%{python2_sitelib}/custodia" custodia/__init__.p
 %{_mandir}/man7/custodia*
 %{_sbindir}/custodia
 %{_bindir}/custodia-cli
-%dir %attr(0700,root,root) %{_sysconfdir}/custodia
-%config(noreplace) %attr(600,root,root) %{_sysconfdir}/custodia/custodia.conf
-%dir %attr(0700,root,root) %{_localstatedir}/lib/custodia
-%dir %attr(0700,root,root) %{_localstatedir}/log/custodia
-%{_tmpfilesdir}/custodia.conf
+%dir %attr(0700,custodia,custodia) %{_sysconfdir}/custodia
+%config(noreplace) %attr(600,custodia,custodia) %{_sysconfdir}/custodia/custodia.conf
+%attr(644,root,root) %{_unitdir}/custodia@.socket
+%attr(644,root,root) %{_unitdir}/custodia@.service
+%dir %attr(0700,custodia,custodia) %{_localstatedir}/lib/custodia
+%dir %attr(0700,custodia,custodia) %{_localstatedir}/log/custodia
+%dir %attr(0755,custodia,custodia) %{_localstatedir}/run/custodia
+%attr(644,root,root) %{_tmpfilesdir}/custodia.conf
+
 
 %files -n python-custodia
 %license LICENSE
 %exclude %{python2_sitelib}/custodia/ipa
 %{python2_sitelib}/*
 
+
 %files -n python-custodia-ipa
 %doc %{_defaultdocdir}/custodia/README.custodia.ipa
-%{python2_sitelib}/custodia/ipa/*
+%{python2_sitelib}/custodia/ipa
 
 
 %changelog
-* Tue Jun 20 2017 Christian Heimes <cheimes@redhat.com> - 0.3.1-4
-- Add workaround for missing kra_server_server key, resolves #1462403
-
-* Mon Jun 12 2017 Christian Heimes <cheimes@redhat.com> - 0.3.1-3
-- Remove custodia user from tmpfiles.d, resolves #1460735
-- Add missing systemd hooks for service and socket files
-- Drop dependency on python-mock and skip mock tests in check block,
-  resolves #1447426
+* Thu May 11 2017 Christian Heimes <cheimes@redhat.com> - 0.5.0-1
+- Rebase to Custodia 0.5.0
+- Vendor custodia.ipa 0.4.1
+- Create custodia user and group
+- Introduced named systemd instances
+- related: #1403214
 
 * Fri Mar 31 2017 Christian Heimes <cheimes@redhat.com> - 0.3.1-2
 - Exclude empty directory custodia/ipa from python-custodia
