@@ -9,8 +9,8 @@ ListenStream=/var/run/custodia/%i.sock
 Service=custodia@%i.service
 RemoveOnStop=true
 SocketUser=custodia
-SocketGroup=custodia
-SocketMode=0666
+SocketGroup=apache
+SocketMode=0660
 
 [Install]
 WantedBy=sockets.target

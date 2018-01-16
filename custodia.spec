@@ -1,6 +1,6 @@
 Name:           custodia
 Version:        0.5.0
-Release:        1.1%{?dist}
+Release:        1.5%{?dist}
 Summary:        A service to manage, retrieve and store secrets for other processes
 
 License:        GPLv3+
@@ -11,6 +11,7 @@ Source2:        custodia.conf
 Source3:        custodia@.service
 Source4:        custodia@.socket
 Source5:        custodia.tmpfiles.conf
+Source6:        httpd-custodia-gssapi.conf
 Patch1:         0001-Vendor-configparser-3.5.0.patch
 Patch2:         0002-Patch-and-integrate-vendored-configparser.patch
 Patch3:         0003-Remove-etcd-store.patch
@@ -34,6 +35,7 @@ BuildRequires:      python-ipalib
 BuildRequires:      python-ipaclient
 
 Requires:           python-custodia = %{version}-%{release}
+Requires:           httpd
 
 Requires(pre):      shadow-utils
 Requires(preun):    systemd-units
@@ -112,7 +114,7 @@ mkdir -p %{buildroot}/%{_localstatedir}/run/custodia
 mv %{buildroot}/%{_bindir}/custodia %{buildroot}/%{_sbindir}/custodia
 install -m 644 -t "%{buildroot}/%{_mandir}/man7" man/custodia.7
 install -m 644 -t "%{buildroot}/%{_defaultdocdir}/custodia" README README.custodia.ipa API.md
-install -m 644 -t "%{buildroot}/%{_defaultdocdir}/custodia/examples" custodia.conf
+install -m 644 -t "%{buildroot}/%{_defaultdocdir}/custodia/examples" custodia.conf httpd-custodia-gssapi.conf
 install -m 600 %{SOURCE2} %{buildroot}%{_sysconfdir}/custodia
 install -m 644 %{SOURCE3} %{buildroot}%{_unitdir}
 install -m 644 %{SOURCE4} %{buildroot}%{_unitdir}
@@ -160,6 +162,7 @@ exit 0
 %doc %{_defaultdocdir}/custodia/README
 %doc %{_defaultdocdir}/custodia/API.md
 %doc %{_defaultdocdir}/custodia/examples/custodia.conf
+%doc %{_defaultdocdir}/custodia/examples/httpd-custodia-gssapi.conf
 %license LICENSE
 %{_mandir}/man7/custodia*
 %{_sbindir}/custodia
