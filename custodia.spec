@@ -23,6 +23,7 @@ BuildArch:      noarch
 BuildRequires:      python-devel
 BuildRequires:      python-jwcrypto
 BuildRequires:      python-requests
+BuildRequires:      python-requests-gssapi
 BuildRequires:      python-setuptools
 BuildRequires:      python-coverage
 BuildRequires:      pytest
@@ -61,6 +62,7 @@ Summary:    Sub-package with python2 custodia modules
 Provides:   python2-custodia = %{version}-%{release}
 Requires:   python-jwcrypto
 Requires:   python-requests
+Requires:   python-requests-gssapi
 Requires:   python-setuptools
 Requires:   systemd-python
 
