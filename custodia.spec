@@ -2,7 +2,7 @@
 
 Name:           custodia
 Version:        0.3.1
-Release:        2%{?dist}
+Release:        4%{?dist}
 Summary:        A service to manage, retrieve and store secrets for other processes
 
 License:        GPLv3+
@@ -15,6 +15,7 @@ Patch1:         0001-Vendor-configparser-3.5.0.patch
 Patch2:         0002-Patch-and-integrate-vendored-configparser.patch
 Patch3:         0003-Remove-etcd-store.patch
 Patch4:         0004-Vendor-custodia.ipa.patch
+Patch5:         0005-Add-workaround-for-missing-kra_server_server.patch
 
 
 BuildArch:      noarch
@@ -28,9 +29,11 @@ BuildRequires:      pytest
 BuildRequires:      python-docutils
 BuildRequires:      systemd-python
 BuildRequires:      python-ipalib
-BuildRequires:      python-mock
 Requires:           python-custodia = %{version}-%{release}
 
+Requires(preun):    systemd-units
+Requires(postun):   systemd-units
+Requires(post):     systemd-units
 
 %global overview                                                           \
 Custodia is a Secrets Service Provider, it stores or proxies access to     \
@@ -80,6 +83,7 @@ grep `sha512sum %{SOURCE0}` %{SOURCE1} || (echo "Checksum invalid!" && exit 1)
 %patch2 -p1
 %patch3 -p1
 %patch4 -p1
+%patch5 -p1
 
 
 %build
@@ -88,7 +92,7 @@ grep `sha512sum %{SOURCE0}` %{SOURCE1} || (echo "Checksum invalid!" && exit 1)
 
 %check
 export PYTHONPATH="%{buildroot}/%{python2_sitelib}"
-py.test --skip-servertest
+py.test --skip-servertest --ignore=tests/test_ipa.py --ignore=tests/test_cli.py
 
 
 %install
@@ -111,6 +115,19 @@ install -m 600 %{SOURCE2} %{buildroot}%{_sysconfdir}/custodia
 install -m 644 %{SOURCE5} %{buildroot}%{_tmpfilesdir}/custodia.conf
 # Recently setuptools stopped installing namespace __init__.py
 install -m 644 -t "%{buildroot}/%{python2_sitelib}/custodia" custodia/__init__.py
+
+
+%post
+%systemd_post custodia.socket
+%systemd_post custodia.service
+
+%preun
+%systemd_preun custodia.socket
+%systemd_preun custodia.service
+
+%postun
+%systemd_postun custodia.socket
+%systemd_postun custodia.service
 
 
 %files
@@ -138,6 +155,15 @@ install -m 644 -t "%{buildroot}/%{python2_sitelib}/custodia" custodia/__init__.p
 
 
 %changelog
+* Tue Jun 20 2017 Christian Heimes <cheimes@redhat.com> - 0.3.1-4
+- Add workaround for missing kra_server_server key, resolves #1462403
+
+* Mon Jun 12 2017 Christian Heimes <cheimes@redhat.com> - 0.3.1-3
+- Remove custodia user from tmpfiles.d, resolves #1460735
+- Add missing systemd hooks for service and socket files
+- Drop dependency on python-mock and skip mock tests in check block,
+  resolves #1447426
+
 * Fri Mar 31 2017 Christian Heimes <cheimes@redhat.com> - 0.3.1-2
 - Exclude empty directory custodia/ipa from python-custodia
 

@@ -1,0 +1,29 @@
+From d265e3fd23a18b051e363048ffbeae7d11fb05a3 Mon Sep 17 00:00:00 2001
+From: Christian Heimes <cheimes@redhat.com>
+Date: Tue, 20 Jun 2017 15:42:53 +0200
+Subject: [PATCH 5/5] Add workaround for missing kra_server_server
+
+Fixes rhbz #1462403
+---
+ custodia/ipa/vault.py | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/custodia/ipa/vault.py b/custodia/ipa/vault.py
+index f681c54..cba2d5b 100644
+--- a/custodia/ipa/vault.py
++++ b/custodia/ipa/vault.py
+@@ -129,8 +129,9 @@ class IPAVault(CSStore):
+                              self.ipa.Command.ping()[u'summary'])
+             # retrieve and cache KRA transport cert
+             response = self.ipa.Command.vaultconfig_show()
+-            servers = response[u'result'][u'kra_server_server']
+-            self.logger.info("KRA server(s) %s", ', '.join(servers))
++            servers = response[u'result'].get(u'kra_server_server', ())
++            if servers:
++                self.logger.info("KRA server(s) %s", ', '.join(servers))
+ 
+         service, user_host, realm = krb5_unparse_principal_name(
+             gssapi_principal)
+-- 
+2.9.4
+
