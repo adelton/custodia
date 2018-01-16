@@ -1,0 +1,146 @@
+From fbb766bb81f37fb89fe4eb63aa7e356306994a5c Mon Sep 17 00:00:00 2001
+From: Christian Heimes <cheimes@redhat.com>
+Date: Tue, 28 Mar 2017 17:51:23 +0200
+Subject: [PATCH 2/4] Patch and integrate vendored configparser
+
+---
+ custodia/compat.py                                 |  2 +-
+ custodia/vendor/__init__.py                        |  2 ++
+ custodia/vendor/backports/configparser/__init__.py |  7 ++++---
+ custodia/vendor/backports/configparser/helpers.py  |  1 +
+ custodia/vendor/configparser.py                    |  3 ++-
+ setup.py                                           | 13 +++++++------
+ tox.ini                                            |  2 +-
+ 7 files changed, 18 insertions(+), 12 deletions(-)
+ create mode 100644 custodia/vendor/__init__.py
+
+diff --git a/custodia/compat.py b/custodia/compat.py
+index 87626e1..5434b93 100644
+--- a/custodia/compat.py
++++ b/custodia/compat.py
+@@ -7,7 +7,7 @@ import six
+ 
+ if six.PY2:
+     # use https://pypi.python.org/pypi/configparser/ on Python 2
+-    from backports import configparser
++    from custodia.vendor.backports import configparser
+     from urllib import quote as url_escape
+     from urllib import quote_plus, unquote
+     from urlparse import parse_qs, urlparse
+diff --git a/custodia/vendor/__init__.py b/custodia/vendor/__init__.py
+new file mode 100644
+index 0000000..3ad9513
+--- /dev/null
++++ b/custodia/vendor/__init__.py
+@@ -0,0 +1,2 @@
++from pkgutil import extend_path
++__path__ = extend_path(__path__, __name__)
+diff --git a/custodia/vendor/backports/configparser/__init__.py b/custodia/vendor/backports/configparser/__init__.py
+index 06d7a08..16c0c80 100644
+--- a/custodia/vendor/backports/configparser/__init__.py
++++ b/custodia/vendor/backports/configparser/__init__.py
+@@ -1,5 +1,6 @@
+ #!/usr/bin/env python
+ # -*- coding: utf-8 -*-
++# pylint: disable-all
+ 
+ """Configuration file parser.
+ 
+@@ -135,9 +136,9 @@ import re
+ import sys
+ import warnings
+ 
+-from backports.configparser.helpers import OrderedDict as _default_dict
+-from backports.configparser.helpers import ChainMap as _ChainMap
+-from backports.configparser.helpers import from_none, open, str, PY2
++from .helpers import OrderedDict as _default_dict
++from .helpers import ChainMap as _ChainMap
++from .helpers import from_none, open, str, PY2
+ 
+ __all__ = ["NoSectionError", "DuplicateOptionError", "DuplicateSectionError",
+            "NoOptionError", "InterpolationError", "InterpolationDepthError",
+diff --git a/custodia/vendor/backports/configparser/helpers.py b/custodia/vendor/backports/configparser/helpers.py
+index c47662f..64f8c33 100644
+--- a/custodia/vendor/backports/configparser/helpers.py
++++ b/custodia/vendor/backports/configparser/helpers.py
+@@ -1,5 +1,6 @@
+ #!/usr/bin/env python
+ # -*- coding: utf-8 -*-
++# pylint: disable-all
+ 
+ from __future__ import absolute_import
+ from __future__ import division
+diff --git a/custodia/vendor/configparser.py b/custodia/vendor/configparser.py
+index b899f9e..6379d87 100644
+--- a/custodia/vendor/configparser.py
++++ b/custodia/vendor/configparser.py
+@@ -1,5 +1,6 @@
+ #!/usr/bin/env python
+ # -*- coding: utf-8 -*-
++# pylint: disable-all
+ 
+ """Convenience module importing everything from backports.configparser."""
+ 
+@@ -9,7 +10,7 @@ from __future__ import print_function
+ from __future__ import unicode_literals
+ 
+ 
+-from backports.configparser import (
++from .backports.configparser import (
+     RawConfigParser,
+     ConfigParser,
+     SafeConfigParser,
+diff --git a/setup.py b/setup.py
+index 96c14c7..a7c398a 100755
+--- a/setup.py
++++ b/setup.py
+@@ -2,8 +2,6 @@
+ #
+ # Copyright (C) 2015  Custodia project Contributors, for licensee see COPYING
+ 
+-import sys
+-
+ import setuptools
+ from setuptools import setup
+ 
+@@ -33,10 +31,10 @@ extras_require = {
+ 
+ # backwards compatibility with old setuptools
+ # extended interpolation is provided by stdlib in Python 3.4+
+-if SETUPTOOLS_VERSION < (18, 0, 0) and sys.version_info < (3, 4):
+-    requirements.append('configparser')
+-else:
+-    extras_require[':python_version<"3.4"'] = ['configparser']
++# if SETUPTOOLS_VERSION < (18, 0, 0) and sys.version_info < (3, 4):
++#     requirements.append('configparser')
++# else:
++#     extras_require[':python_version<"3.4"'] = ['configparser']
+ 
+ 
+ with open('README') as f:
+@@ -94,6 +92,9 @@ setup(
+         'custodia.message',
+         'custodia.server',
+         'custodia.store',
++        'custodia.vendor',
++        'custodia.vendor.backports',
++        'custodia.vendor.backports.configparser',
+     ],
+     entry_points={
+         'console_scripts': [
+diff --git a/tox.ini b/tox.ini
+index 8db1c8b..d90359d 100644
+--- a/tox.ini
++++ b/tox.ini
+@@ -76,7 +76,7 @@ markers =
+     servertest: Integration tests start a local Custodia server
+ 
+ [flake8]
+-exclude = .tox,*.egg,dist,build,docs/source
++exclude = .tox,*.egg,dist,build,docs/source,custodia/vendor
+ show-source = true
+ max-line-length = 79
+ ignore = N802
+-- 
+2.9.3
+

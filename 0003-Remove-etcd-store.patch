@@ -1,0 +1,199 @@
+From c2a8008af30d045227058e3158e84c9415647760 Mon Sep 17 00:00:00 2001
+From: Christian Heimes <cheimes@redhat.com>
+Date: Fri, 31 Mar 2017 12:14:43 +0200
+Subject: [PATCH 3/4] Remove etcd store
+
+---
+ custodia/store/etcdstore.py    | 123 -----------------------------------------
+ docs/source/plugins/stores.rst |   6 --
+ setup.py                       |   9 +--
+ 3 files changed, 2 insertions(+), 136 deletions(-)
+ delete mode 100644 custodia/store/etcdstore.py
+
+diff --git a/custodia/store/etcdstore.py b/custodia/store/etcdstore.py
+deleted file mode 100644
+index 759348b..0000000
+--- a/custodia/store/etcdstore.py
++++ /dev/null
+@@ -1,123 +0,0 @@
+-# Copyright (C) 2015  Custodia Project Contributors - see LICENSE file
+-
+-from __future__ import print_function
+-
+-try:
+-    from etcd import (Client, EtcdException, EtcdNotFile, EtcdAlreadyExist,
+-                      EtcdKeyNotFound)
+-except ImportError:
+-    def Client(*args, **kwargs):
+-        raise RuntimeError("Etcd client is unavailable")
+-
+-    class EtcdException(Exception):
+-        pass
+-
+-    class EtcdNotFile(Exception):
+-        pass
+-
+-    class EtcdKeyNotFound(Exception):
+-        pass
+-
+-    class EtcdAlreadyExist(Exception):
+-        pass
+-
+-from custodia.plugin import CSStore, CSStoreError, CSStoreExists
+-from custodia.plugin import PluginOption
+-
+-
+-class EtcdStore(CSStore):
+-    etcd_server = PluginOption(str, '127.0.0.1', None)
+-    etcd_port = PluginOption(int, '4001', None)
+-    namespace = PluginOption(str, '/custodia', None)
+-
+-    def __init__(self, config, section):
+-        super(EtcdStore, self).__init__(config, section)
+-        # Initialize the DB by trying to create the default table
+-        try:
+-            self.etcd = Client(self.etcd_server, self.etcd_port)
+-            self.etcd.write(self.namespace, None, dir=True)
+-        except EtcdNotFile:
+-            # Already exists
+-            pass
+-        except EtcdException:
+-            self.logger.exception("Error creating namespace %s",
+-                                  self.namespace)
+-            raise CSStoreError('Error occurred while trying to init db')
+-
+-    def _absolute_key(self, key):
+-        """Get absolute path to key and validate key"""
+-        if '//' in key:
+-            raise ValueError("Invalid empty components in key '%s'" % key)
+-        parts = key.split('/')
+-        if set(parts).intersection({'.', '..'}):
+-            raise ValueError("Invalid relative components in key '%s'" % key)
+-        return '/'.join([self.namespace] + parts).replace('//', '/')
+-
+-    def get(self, key):
+-        self.logger.debug("Fetching key %s", key)
+-        try:
+-            result = self.etcd.get(self._absolute_key(key))
+-        except EtcdException:
+-            self.logger.exception("Error fetching key %s", key)
+-            raise CSStoreError('Error occurred while trying to get key')
+-        self.logger.debug("Fetched key %s got result: %r", key, result)
+-        return result.value  # pylint: disable=no-member
+-
+-    def set(self, key, value, replace=False):
+-        self.logger.debug("Setting key %s to value %s (replace=%s)",
+-                          key, value, replace)
+-        path = self._absolute_key(key)
+-        try:
+-            self.etcd.write(path, value, prevExist=replace)
+-        except EtcdAlreadyExist as err:
+-            raise CSStoreExists(str(err))
+-        except EtcdException:
+-            self.logger.exception("Error storing key %s", key)
+-            raise CSStoreError('Error occurred while trying to store key')
+-
+-    def span(self, key):
+-        path = self._absolute_key(key)
+-        self.logger.debug("Creating directory %s", path)
+-        try:
+-            self.etcd.write(path, None, dir=True, prevExist=False)
+-        except EtcdAlreadyExist as err:
+-            raise CSStoreExists(str(err))
+-        except EtcdException:
+-            self.logger.exception("Error storing key %s", key)
+-            raise CSStoreError('Error occurred while trying to store key')
+-
+-    def list(self, keyfilter='/'):
+-        path = self._absolute_key(keyfilter)
+-        if path != '/':
+-            path = path.rstrip('/')
+-        self.logger.debug("Listing keys matching %s", path)
+-        try:
+-            result = self.etcd.read(path, recursive=True)
+-        except EtcdKeyNotFound:
+-            return None
+-        except EtcdException:
+-            self.logger.exception("Error listing %s", keyfilter)
+-            raise CSStoreError('Error occurred while trying to list keys')
+-        self.logger.debug("Searched for %s got result: %r", path, result)
+-        value = set()
+-        for entry in result.get_subtree():
+-            if entry.key == path:
+-                continue
+-            name = entry.key[len(path):]
+-            if entry.dir and not name.endswith('/'):
+-                name += '/'
+-            value.add(name.lstrip('/'))
+-        return sorted(value)
+-
+-    def cut(self, key):
+-        self.logger.debug("Removing key %s", key)
+-        try:
+-            self.etcd.delete(self._absolute_key(key))
+-        except EtcdKeyNotFound:
+-            self.logger.debug("Key %s not found", key)
+-            return False
+-        except EtcdException:
+-            self.logger.exception("Error removing key %s", key)
+-            raise CSStoreError('Error occurred while trying to cut key')
+-        self.logger.debug("Key %s removed", key)
+-        return True
+diff --git a/docs/source/plugins/stores.rst b/docs/source/plugins/stores.rst
+index ed921ba..d715f31 100644
+--- a/docs/source/plugins/stores.rst
++++ b/docs/source/plugins/stores.rst
+@@ -5,7 +5,6 @@ Stores
+    :nosignatures:
+ 
+    custodia.store.sqlite.SqliteStore
+-   custodia.store.etcdstore.EtcdStore
+    custodia.store.encgen.EncryptedOverlay
+ 
+ .. autoclass:: custodia.store.sqlite.SqliteStore
+@@ -13,11 +12,6 @@ Stores
+     :undoc-members:
+     :show-inheritance:
+ 
+-.. autoclass:: custodia.store.etcdstore.EtcdStore
+-    :members:
+-    :undoc-members:
+-    :show-inheritance:
+-
+ .. autoclass:: custodia.store.encgen.EncryptedOverlay
+     :members:
+     :undoc-members:
+diff --git a/setup.py b/setup.py
+index a7c398a..c8f270d 100755
+--- a/setup.py
++++ b/setup.py
+@@ -15,16 +15,12 @@ requirements = [
+     'requests'
+ ]
+ 
+-# extra requirements
+-etcd_requires = ['python-etcd']
+-
+ # test requirements
+-test_requires = ['coverage', 'pytest'] + etcd_requires
++test_requires = ['coverage', 'pytest']
+ 
+ extras_require = {
+-    'etcd_store': etcd_requires,
+     'test': test_requires,
+-    'test_docs': ['docutils', 'markdown'] + etcd_requires,
++    'test_docs': ['docutils', 'markdown'],
+     'test_pep8': ['flake8', 'flake8-import-order', 'pep8-naming'],
+     'test_pylint': ['pylint'] + test_requires,
+ }
+@@ -70,7 +66,6 @@ custodia_consumers = [
+ custodia_stores = [
+     'EncryptedOverlay = custodia.store.encgen:EncryptedOverlay',
+     'EncryptedStore = custodia.store.enclite:EncryptedStore',
+-    'EtcdStore = custodia.store.etcdstore:EtcdStore',
+     'SqliteStore = custodia.store.sqlite:SqliteStore',
+ ]
+ 
+-- 
+2.9.3
+
