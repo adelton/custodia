@@ -1,0 +1,16 @@
+diff -ru custodia-0.5.0.orig/src/custodia/ipa/vault.py custodia-0.5.0/src/custodia/ipa/vault.py
+--- custodia-0.5.0.orig/src/custodia/ipa/vault.py	2017-07-04 12:23:00.801803988 +0200
++++ custodia-0.5.0/src/custodia/ipa/vault.py	2017-07-04 12:25:29.126494693 +0200
+@@ -67,8 +67,10 @@
+         with self.ipa:
+             # retrieve and cache KRA transport cert
+             response = self.ipa.Command.vaultconfig_show()
+-            servers = response[u'result'][u'kra_server_server']
+-            self.logger.info("KRA server(s) %s", ', '.join(servers))
++            servers = response[u'result'].get(u'kra_server_server', ())
++            if servers:
++                self.logger.info("KRA server(s) %s", ', '.join(servers))
++
+ 
+         service, user_host, realm = krb5_unparse_principal_name(
+             self.ipa.principal)

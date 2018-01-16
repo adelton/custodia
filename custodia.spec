@@ -1,6 +1,6 @@
 Name:           custodia
 Version:        0.5.0
-Release:        1%{?dist}
+Release:        1.1%{?dist}
 Summary:        A service to manage, retrieve and store secrets for other processes
 
 License:        GPLv3+
@@ -15,6 +15,7 @@ Patch1:         0001-Vendor-configparser-3.5.0.patch
 Patch2:         0002-Patch-and-integrate-vendored-configparser.patch
 Patch3:         0003-Remove-etcd-store.patch
 Patch4:         0004-Vendor-custodia.ipa.patch
+Patch5:         0005-Add-workaround-for-missing-kra_server_server-0.5.patch
 
 
 BuildArch:      noarch
@@ -86,6 +87,7 @@ grep `sha512sum %{SOURCE0}` %{SOURCE1} || (echo "Checksum invalid!" && exit 1)
 %patch2 -p1
 %patch3 -p1
 %patch4 -p1
+%patch5 -p1
 
 
 %build
@@ -182,6 +184,9 @@ exit 0
 
 
 %changelog
+* Tue Jul 04 2017 Jan Pazdziora - 0.5.0-1.1
+- 1462403 - Add 0005-Add-workaround-for-missing-kra_server_server.patch.
+
 * Thu May 11 2017 Christian Heimes <cheimes@redhat.com> - 0.5.0-1
 - Rebase to Custodia 0.5.0
 - Vendor custodia.ipa 0.4.1
